@@ -19,7 +19,9 @@ import androidx.compose.material.icons.rounded.CarRepair
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.content.FileProvider
 import com.raziya.diagnostics.report.DiagnosticReportGenerator
+import com.raziya.diagnostics.report.DtcCatalog
+import com.raziya.diagnostics.report.Severity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,6 +61,7 @@ fun RaziyaTheme(content: @Composable () -> Unit) {
 fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     var showDevices by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) {
@@ -65,7 +70,30 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
         }
     }
 
-    Scaffold(containerColor = Ink) { padding ->
+    val shareReport: () -> Unit = {
+        runCatching {
+            val report = DiagnosticReportGenerator.generate(context, state)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", report)
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "Vehicle diagnostic report — ${state.vin ?: "VIN unavailable"}")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, "Share diagnostic report"))
+        }.onFailure { error -> vm.reportError(error.message ?: "Unable to create diagnostic report") }
+    }
+
+    LaunchedEffect(state.scanCompletedAt) {
+        if (state.scanCompletedAt != null) {
+            snackbarHostState.showSnackbar(
+                message = "Diagnosis complete — ${state.dtcs.size} issues detected. Report ready.",
+                withDismissAction = true,
+                duration = SnackbarDuration.Long,
+            )
+        }
+    }
+
+    Scaffold(containerColor = Ink, snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -74,26 +102,11 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                 val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
                 permissionLauncher.launch(permissions)
             } } }
-            item {
-                HeroCard(state, onScan = vm::runHealthScan, onShare = {
-                    runCatching {
-                        val report = DiagnosticReportGenerator.generate(context, state)
-                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", report)
-                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                            type = "application/pdf"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            putExtra(Intent.EXTRA_SUBJECT, "Vehicle diagnostic report — ${state.vin ?: "VIN unavailable"}")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }, "Share diagnostic report"))
-                    }.onFailure { error ->
-                        // Surface generation/share failures through the existing app dialog.
-                        vm.reportError(error.message ?: "Unable to create diagnostic report")
-                    }
-                })
-            }
+            item { HeroCard(state, onScan = vm::runHealthScan) }
             item { Text("LIVE TELEMETRY", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
             item { TelemetryGrid(state.readings) }
             item { VehicleIdentity(state.vin, state.dtcs) }
+            if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
             item { FrameMonitor(state.frames) }
         }
     }
@@ -124,7 +137,7 @@ private fun Header(connected: Boolean, device: String?, onConnection: () -> Unit
 }
 
 @Composable
-private fun HeroCard(state: DiagnosticsState, onScan: () -> Unit, onShare: () -> Unit) {
+private fun HeroCard(state: DiagnosticsState, onScan: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = if (state.connected) Color(0xFF123B2C) else Surface), shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(22.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -142,12 +155,6 @@ private fun HeroCard(state: DiagnosticsState, onScan: () -> Unit, onShare: () ->
                     Spacer(Modifier.width(9.dp))
                 }
                 Text(if (state.healthScanRunning) "SCANNING VEHICLE…" else "RUN COMPLETE HEALTH SCAN", fontWeight = FontWeight.Bold)
-            }
-            if (state.scanCompletedAt != null) {
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = onShare, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                    Text("SHARE CLIENT PDF REPORT", fontWeight = FontWeight.Bold)
-                }
             }
         }
     }
@@ -193,7 +200,57 @@ private fun VehicleIdentity(vin: String?, dtcs: List<String>) {
             Spacer(Modifier.height(10.dp)); Text(vin ?: "VIN not read", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(14.dp)); HorizontalDivider(color = Color.White.copy(alpha = .08f)); Spacer(Modifier.height(14.dp))
             if (dtcs.isEmpty()) Text("No stored trouble codes", color = Mint)
-            else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { dtcs.forEach { AssistChip(onClick = {}, label = { Text(it) }, leadingIcon = { Icon(Icons.Rounded.ErrorOutline, null, tint = Warning) }) } }
+            else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                dtcs.chunked(3).forEach { rowCodes ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowCodes.forEach { code ->
+                            AssistChip(onClick = {}, label = { Text(code) }, leadingIcon = { Icon(Icons.Rounded.ErrorOutline, null, tint = Warning) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticReportCard(state: DiagnosticsState, onShare: () -> Unit) {
+    val issues = DtcCatalog.resolve(state.dtcs)
+    val score = (100 - issues.sumOf { it.severity.scorePenalty }).coerceIn(0, 100)
+    val critical = issues.count { it.severity == Severity.CRITICAL }
+    val high = issues.count { it.severity == Severity.HIGH }
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF17251F)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(42.dp).background(Mint.copy(alpha = .14f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Description, null, tint = Mint)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Diagnostic report", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("Scan complete • PDF ready", color = Mint, style = MaterialTheme.typography.bodySmall)
+                }
+                Text("$score", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
+                Text("/100", color = Muted, modifier = Modifier.padding(top = 8.dp))
+            }
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = .08f))
+            Spacer(Modifier.height(14.dp))
+            Text(
+                when {
+                    critical > 0 -> "$critical critical and $high high-priority issues require immediate attention."
+                    high > 0 -> "$high high-priority issues require urgent service."
+                    issues.isEmpty() -> "No stored diagnostic faults were detected."
+                    else -> "${issues.size} issues require further inspection."
+                }, color = if (critical > 0) Warning else Color.White,
+            )
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = onShare, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("CREATE & SHARE PDF", fontWeight = FontWeight.Bold)
+            }
+            Text("You choose the recipient in Android's share sheet.", color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 9.dp))
         }
     }
 }
