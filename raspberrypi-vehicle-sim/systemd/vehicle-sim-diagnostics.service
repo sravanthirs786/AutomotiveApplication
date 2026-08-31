@@ -1,0 +1,13 @@
+[Unit]
+Description=Vehicle OBD-II and UDS ECU simulator
+Requires=vehicle-sim-can.service
+After=vehicle-sim-can.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/vehicle-sim/src/diagnostic_ecu.py
+Restart=always
+RestartSec=2
+User=vehiclecan
+
+[Install]
+WantedBy=multi-user.target

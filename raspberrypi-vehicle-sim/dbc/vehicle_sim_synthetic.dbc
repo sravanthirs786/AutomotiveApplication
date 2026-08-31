@@ -1,0 +1,15 @@
+VERSION "Vehicle simulator synthetic lab signals - not Kia proprietary data"
+NS_ :
+BS_:
+BU_: ECM TCM ABS GATEWAY
+
+BO_ 384 PowertrainStatus: 4 ECM
+ SG_ EngineRPM : 0|16@0+ (1,0) [0|8000] "rpm" ECM
+ SG_ VehicleSpeed : 16|8@0+ (1,0) [0|255] "km/h" ECM
+ SG_ RollingCounter : 24|8@0+ (1,0) [0|255] "" ECM
+
+BO_ 640 EngineStatus: 4 ECM
+ SG_ VehicleSpeed : 0|8@0+ (1,0) [0|255] "km/h" ECM
+ SG_ Throttle : 8|8@0+ (1,0) [0|100] "%" ECM
+ SG_ CoolantEncoded : 16|8@0+ (1,-40) [-40|215] "degC" ECM
+ SG_ RollingCounter : 24|4@0+ (1,0) [0|15] "" ECM

@@ -1,0 +1,18 @@
+[Unit]
+Description=Vehicle simulator raw CAN Bluetooth RFCOMM bridge
+Requires=bluetooth.service vehicle-sim-can.service
+After=bluetooth.service vehicle-sim-can.service vehicle-sim-gateway.service
+
+[Service]
+ExecStartPre=/usr/bin/bluetoothctl system-alias VehicleSim-OBD
+ExecStartPre=/usr/bin/bluetoothctl pairable on
+ExecStartPre=/usr/bin/bluetoothctl discoverable-timeout 0
+ExecStartPre=/usr/bin/bluetoothctl discoverable on
+ExecStartPre=/usr/bin/sdptool add --channel=1 SP
+ExecStart=/usr/bin/python3 /opt/vehicle-sim/src/bluetooth_bridge.py
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target

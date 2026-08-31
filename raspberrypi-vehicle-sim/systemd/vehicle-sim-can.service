@@ -1,0 +1,17 @@
+[Unit]
+Description=Vehicle simulator virtual CAN interfaces
+Before=vehicle-sim-traffic.service vehicle-sim-diagnostics.service vehicle-sim-gateway.service vehicle-sim-bluetooth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe vcan
+ExecStart=/sbin/ip link add dev vcan0 type vcan
+ExecStart=/sbin/ip link add dev vcan_diag type vcan
+ExecStart=/sbin/ip link set up vcan0
+ExecStart=/sbin/ip link set up vcan_diag
+ExecStop=/sbin/ip link del vcan_diag
+ExecStop=/sbin/ip link del vcan0
+
+[Install]
+WantedBy=multi-user.target

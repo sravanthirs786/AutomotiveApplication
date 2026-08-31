@@ -1,0 +1,14 @@
+[Unit]
+Description=Bluetooth raw-CAN to SocketCAN bridge
+After=vehicle-sim.service vehicle-sim-gateway.service vehicle-sim-bluetooth.service vehicle-sim-agent.service
+Requires=vehicle-sim.service vehicle-sim-gateway.service vehicle-sim-bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/vehicle-sim/raw_can_bridge.py
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target

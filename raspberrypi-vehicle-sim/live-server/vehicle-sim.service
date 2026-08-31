@@ -1,0 +1,20 @@
+[Unit]
+Description=Stateful CAN, OBD-II and UDS vehicle simulator
+Requires=vcan0.service
+After=vcan0.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/vehicle-sim/vehicle_sim.py --interface vcan0
+Restart=on-failure
+RestartSec=2
+User=vehiclesim
+Group=vehiclesim
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+

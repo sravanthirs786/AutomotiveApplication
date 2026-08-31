@@ -1,0 +1,13 @@
+[Unit]
+Description=Vehicle simulator secure diagnostic CAN gateway
+Requires=vehicle-sim-can.service
+After=vehicle-sim-can.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/vehicle-sim/src/gateway.py
+Restart=always
+RestartSec=2
+User=vehiclecan
+
+[Install]
+WantedBy=multi-user.target
