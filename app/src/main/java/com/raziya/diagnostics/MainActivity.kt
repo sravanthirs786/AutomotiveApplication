@@ -29,8 +29,11 @@ import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.TireRepair
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -78,6 +81,11 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
             showDevices = true
             vm.startBluetoothScan()
         }
+    }
+
+    if (state.vehicleProfile == null) {
+        VehicleIntakeScreen(onContinue = vm::selectVehicle)
+        return
     }
 
     val shareReport: () -> Unit = {
@@ -131,7 +139,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { Header(state.connected, state.deviceName) { if (state.connected) vm.disconnect() else {
+            item { Header(state.connected, state.vehicleProfile, vm::changeVehicle) { if (state.connected) vm.disconnect() else {
                 val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
                 permissionLauncher.launch(permissions)
             } } }
@@ -174,16 +182,73 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
 }
 
 @Composable
-private fun Header(connected: Boolean, device: String?, onConnection: () -> Unit) {
+private fun VehicleIntakeScreen(onContinue: (VehicleProfile) -> Unit) {
+    var vehicleName by rememberSaveable { mutableStateOf("") }
+    var registration by rememberSaveable { mutableStateOf("") }
+    var clientName by rememberSaveable { mutableStateOf("") }
+    var clientPhone by rememberSaveable { mutableStateOf("") }
+    var odometer by rememberSaveable { mutableStateOf("") }
+    var attempted by rememberSaveable { mutableStateOf(false) }
+    val valid = vehicleName.isNotBlank() && registration.isNotBlank()
+
+    Scaffold(containerColor = Ink) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(22.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item {
+                Spacer(Modifier.height(18.dp))
+                Box(Modifier.size(58.dp).background(Mint, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.CarRepair, null, tint = Ink, modifier = Modifier.size(32.dp))
+                }
+                Spacer(Modifier.height(22.dp))
+                Text("Start a diagnosis", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
+                Text("Identify the vehicle before connecting the diagnostic adapter.", color = Muted, style = MaterialTheme.typography.bodyLarge)
+            }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(24.dp)) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text("VEHICLE DETAILS", color = Mint, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelMedium)
+                        OutlinedTextField(value = vehicleName, onValueChange = { vehicleName = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Vehicle name / model *") }, placeholder = { Text("Example: Kia Carens") }, leadingIcon = { Icon(Icons.Rounded.DirectionsCar, null) }, singleLine = true, isError = attempted && vehicleName.isBlank())
+                        OutlinedTextField(value = registration, onValueChange = { registration = it.uppercase() }, modifier = Modifier.fillMaxWidth(), label = { Text("Registration number *") }, placeholder = { Text("Example: TS 09 AB 1234") }, leadingIcon = { Icon(Icons.Rounded.Badge, null) }, singleLine = true, isError = attempted && registration.isBlank())
+                        OutlinedTextField(value = odometer, onValueChange = { odometer = it.filter(Char::isDigit).take(7) }, modifier = Modifier.fillMaxWidth(), label = { Text("Odometer (optional)") }, suffix = { Text("km") }, singleLine = true)
+                    }
+                }
+            }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(24.dp)) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text("CLIENT DETAILS", color = Mint, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelMedium)
+                        Text("Optional — included in the diagnostic report.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(value = clientName, onValueChange = { clientName = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Client name") }, leadingIcon = { Icon(Icons.Rounded.Person, null) }, singleLine = true)
+                        OutlinedTextField(value = clientPhone, onValueChange = { clientPhone = it.filter { char -> char.isDigit() || char == '+' }.take(15) }, modifier = Modifier.fillMaxWidth(), label = { Text("Phone number") }, singleLine = true)
+                    }
+                }
+            }
+            item {
+                Button(onClick = {
+                    attempted = true
+                    if (valid) onContinue(VehicleProfile(vehicleName.trim(), registration.trim(), clientName.trim(), clientPhone.trim(), odometer.trim()))
+                }, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("CONTINUE TO BLUETOOTH", fontWeight = FontWeight.Black) }
+                if (attempted && !valid) Text("Vehicle name and registration number are required.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun Header(connected: Boolean, profile: VehicleProfile?, onChangeVehicle: () -> Unit, onConnection: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Box(Modifier.size(44.dp).background(Mint, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.CarRepair, null, tint = Ink)
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text("RAZIYA", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleLarge)
-            Text(if (connected) device ?: "Vehicle connected" else "Remote vehicle diagnostics", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text(profile?.vehicleName ?: "Vehicle", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleLarge)
+            Text(profile?.registrationNumber ?: "Registration unavailable", color = Mint, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         }
+        TextButton(onClick = onChangeVehicle) { Text("CHANGE", style = MaterialTheme.typography.labelSmall) }
         FilledTonalButton(onClick = onConnection) {
             Icon(if (connected) Icons.Rounded.Close else Icons.Rounded.Bluetooth, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp)); Text(if (connected) "Disconnect" else "Connect")

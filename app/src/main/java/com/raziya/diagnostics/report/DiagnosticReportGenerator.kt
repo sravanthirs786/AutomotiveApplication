@@ -54,6 +54,11 @@ object DiagnosticReportGenerator {
         line("VEHICLE DIAGNOSTIC REPORT", heading, 30f)
         line("Prepared by RAZIYA Diagnostics", muted, 18f)
         line("Report time: ${formatTime(state.scanCompletedAt ?: System.currentTimeMillis())}")
+        line("Vehicle: ${state.vehicleProfile?.vehicleName ?: "Not provided"}")
+        line("Registration: ${state.vehicleProfile?.registrationNumber ?: "Not provided"}")
+        if (!state.vehicleProfile?.odometerKm.isNullOrBlank()) line("Odometer: ${state.vehicleProfile?.odometerKm} km")
+        if (!state.vehicleProfile?.clientName.isNullOrBlank()) line("Client: ${state.vehicleProfile?.clientName}")
+        if (!state.vehicleProfile?.clientPhone.isNullOrBlank()) line("Client phone: ${state.vehicleProfile?.clientPhone}")
         line("Vehicle VIN: ${state.vin ?: "Not available"}")
         line("Diagnostic source: ${state.deviceName ?: "Bluetooth vehicle interface"}")
         y += 8

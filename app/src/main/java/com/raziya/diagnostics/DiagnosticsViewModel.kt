@@ -23,7 +23,16 @@ import kotlinx.coroutines.launch
 
 data class FrameLog(val direction: String, val frame: CanFrame, val timestamp: Long = System.currentTimeMillis())
 
+data class VehicleProfile(
+    val vehicleName: String,
+    val registrationNumber: String,
+    val clientName: String = "",
+    val clientPhone: String = "",
+    val odometerKm: String = "",
+)
+
 data class DiagnosticsState(
+    val vehicleProfile: VehicleProfile? = null,
     val connected: Boolean = false,
     val connecting: Boolean = false,
     val deviceName: String? = null,
@@ -47,6 +56,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private var polling: Job? = null
 
     fun pairedDevices(): List<BluetoothDevice> = runCatching { client.bondedDevices() }.getOrDefault(emptyList())
+
+    fun selectVehicle(profile: VehicleProfile) = _state.update { it.copy(vehicleProfile = profile, error = null) }
+
+    fun changeVehicle() {
+        disconnect()
+        _state.value = DiagnosticsState()
+    }
 
     fun startBluetoothScan() {
         _state.update { it.copy(scanning = true, devices = emptyList(), error = null) }
