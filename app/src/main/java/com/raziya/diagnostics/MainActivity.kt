@@ -24,7 +24,6 @@ import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.TireRepair
 import androidx.compose.material.icons.rounded.Lock
@@ -59,7 +58,7 @@ private val Mint = Color(0xFF60F4B2)
 private val Muted = Color(0xFF9AAFA6)
 private val Warning = Color(0xFFFFC857)
 
-private enum class AppSection(val label: String) { OVERVIEW("Home"), LIVE("Live"), DIAGNOSE("Scan"), VEHICLE("Vehicle"), REPORTS("Reports") }
+private enum class AppSection(val label: String) { OVERVIEW("Home"), LIVE("Live"), VEHICLE("Vehicle"), REPORTS("Reports") }
 
 @Composable
 fun RaziyaTheme(content: @Composable () -> Unit) {
@@ -125,7 +124,6 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                     val icon = when (item) {
                         AppSection.OVERVIEW -> Icons.Rounded.Dashboard
                         AppSection.LIVE -> Icons.Rounded.Speed
-                        AppSection.DIAGNOSE -> Icons.Rounded.FactCheck
                         AppSection.VEHICLE -> Icons.Rounded.DirectionsCar
                         AppSection.REPORTS -> Icons.Rounded.Description
                     }
@@ -156,11 +154,6 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                     item { SectionTitle("LIVE DATA", "Standard OBD-II parameters from the engine ECU") }
                     item { TelemetryGrid(state.readings) }
                 }
-                AppSection.DIAGNOSE -> {
-                    item { SectionTitle("COMPLETE DIAGNOSIS", "Scan emissions and lab ECU modules") }
-                    item { HeroCard(state, onConnect = requestConnection, onDisconnect = vm::disconnect, onScan = vm::runHealthScan) }
-                    if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
-                }
                 AppSection.VEHICLE -> {
                     item { SectionTitle("BODY & CHASSIS", "Lab BCM, TPMS, ABS and transmission data") }
                     item { DoorStatusCard(state.vehicleStatus) }
@@ -170,7 +163,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                 AppSection.REPORTS -> {
                     item { SectionTitle("REPORTS", "Keep diagnosis separate from client documents") }
                     if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
-                    else item { EmptyReportCard { section = AppSection.DIAGNOSE } }
+                    else item { EmptyReportCard { section = AppSection.OVERVIEW } }
                 }
             }
         }
@@ -340,12 +333,17 @@ private fun QuickAlerts(state: DiagnosticsState, onOpen: () -> Unit) {
     val openDoors = listOf(state.vehicleStatus.frontLeftDoorOpen, state.vehicleStatus.frontRightDoorOpen,
         state.vehicleStatus.rearLeftDoorOpen, state.vehicleStatus.rearRightDoorOpen, state.vehicleStatus.hoodOpen,
         state.vehicleStatus.tailgateOpen).count { it }
+    val available = state.vehicleStatus.bodyDataAvailable && state.vehicleStatus.tpmsDataAvailable
     Card(onClick = onOpen, colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(18.dp)) {
         Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.ErrorOutline, null, tint = if (lowTyres + openDoors > 0) Warning else Mint)
+            Icon(Icons.Rounded.ErrorOutline, null, tint = if (!available || lowTyres + openDoors > 0) Warning else Mint)
             Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) {
                 Text("Vehicle alerts", fontWeight = FontWeight.Bold)
-                Text(if (state.scanCompletedAt == null) "Run a scan to read body and tyre status" else "$openDoors open panels • $lowTyres low tyres", color = Muted)
+                Text(when {
+                    state.scanCompletedAt == null -> "Run a scan to read body and tyre status"
+                    !available -> "Body / TPMS data unavailable — simulator update required"
+                    else -> "$openDoors open panels • $lowTyres low tyres"
+                }, color = Muted)
             }; Text("VIEW", color = Mint, fontWeight = FontWeight.Bold)
         }
     }
@@ -449,7 +447,7 @@ private fun DiagnosticReportCard(state: DiagnosticsState, onShare: () -> Unit) {
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Diagnostic report", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Text("Scan complete • PDF ready", color = Mint, style = MaterialTheme.typography.bodySmall)
+                    Text("Scan complete • Report preview", color = Mint, style = MaterialTheme.typography.bodySmall)
                 }
                 Text("$score", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
                 Text("/100", color = Muted, modifier = Modifier.padding(top = 8.dp))
@@ -466,12 +464,34 @@ private fun DiagnosticReportCard(state: DiagnosticsState, onShare: () -> Unit) {
                 }, color = if (critical > 0) Warning else Color.White,
             )
             Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = .08f))
+            Spacer(Modifier.height(14.dp))
+            Text("VEHICLE", color = Mint, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
+            Text("${state.vehicleProfile?.vehicleName.orEmpty()} • ${state.vehicleProfile?.registrationNumber.orEmpty()}", fontWeight = FontWeight.Bold)
+            Text("VIN: ${state.vin ?: "Not available"}", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(16.dp))
+            Text("FINDINGS", color = Mint, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
+            if (issues.isEmpty()) Text("No stored diagnostic trouble codes were reported.", color = Mint)
+            issues.forEach { issue ->
+                Surface(color = Color.White.copy(alpha = .04f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(issue.code, color = Warning, fontWeight = FontWeight.Black)
+                            Spacer(Modifier.width(8.dp)); Text(issue.severity.label.uppercase(), color = Muted, style = MaterialTheme.typography.labelSmall)
+                        }
+                        Text(issue.title, fontWeight = FontWeight.Bold)
+                        Text(issue.explanation, color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(6.dp)); Text("Recommended: ${issue.recommendation}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
             Button(onClick = onShare, modifier = Modifier.fillMaxWidth().height(50.dp)) {
                 Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("CREATE & SHARE PDF", fontWeight = FontWeight.Bold)
+                Text("EXPORT PDF", fontWeight = FontWeight.Bold)
             }
-            Text("You choose the recipient in Android's share sheet.", color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 9.dp))
+            Text("Preview the findings here first. Export only when the report is ready for the client.", color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 9.dp))
         }
     }
 }

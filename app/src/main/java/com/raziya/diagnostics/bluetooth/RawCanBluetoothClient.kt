@@ -13,6 +13,8 @@ import com.raziya.diagnostics.can.CanFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.InputStream
@@ -24,6 +26,7 @@ class RawCanBluetoothClient(context: Context) {
     private var connection: android.bluetooth.BluetoothSocket? = null
     private var reader: Job? = null
     private var discoveryReceiver: BroadcastReceiver? = null
+    @Volatile private var connectionGeneration = 0L
     private val scope = CoroutineScope(Dispatchers.IO)
 
     companion object {
@@ -73,17 +76,24 @@ class RawCanBluetoothClient(context: Context) {
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice, onFrame: (CanFrame) -> Unit, onState: (Boolean, String?) -> Unit) {
         disconnect()
+        val generation = ++connectionGeneration
         reader = scope.launch {
+            var socket: android.bluetooth.BluetoothSocket? = null
             try {
                 adapter?.cancelDiscovery()
-                val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-                socket.connect()
+                socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
                 connection = socket
+                socket.connect()
                 onState(true, null)
                 readFrames(socket.inputStream, onFrame)
+                if (generation == connectionGeneration) onState(false, "Vehicle interface disconnected")
+            } catch (_: CancellationException) {
+                // Expected when the mechanic taps Disconnect or changes vehicle.
             } catch (error: Exception) {
-                onState(false, error.message ?: "Bluetooth connection failed")
-                disconnect()
+                if (generation == connectionGeneration) onState(false, friendlyMessage(error))
+            } finally {
+                runCatching { socket?.close() }
+                if (connection === socket) connection = null
             }
         }
     }
@@ -96,6 +106,7 @@ class RawCanBluetoothClient(context: Context) {
     }
 
     fun disconnect() {
+        connectionGeneration++
         stopDiscovery()
         reader?.cancel()
         reader = null
@@ -106,7 +117,7 @@ class RawCanBluetoothClient(context: Context) {
     private suspend fun readFrames(input: InputStream, onFrame: (CanFrame) -> Unit) {
         val packet = ByteArray(CanFrame.WIRE_SIZE)
         var offset = 0
-        while (scope.isActive) {
+        while (currentCoroutineContext().isActive) {
             val count = input.read(packet, offset, packet.size - offset)
             if (count < 0) error("Bluetooth connection closed")
             offset += count
@@ -114,6 +125,15 @@ class RawCanBluetoothClient(context: Context) {
                 onFrame(CanFrame.decode(packet.copyOf()))
                 offset = 0
             }
+        }
+    }
+
+    private fun friendlyMessage(error: Exception): String {
+        val message = error.message.orEmpty()
+        return when {
+            message.contains("read failed", ignoreCase = true) || message.contains("socket closed", ignoreCase = true) ->
+                "The Raspberry Pi closed the Bluetooth channel. Check that vehicle-sim-rfcomm is running, then reconnect."
+            else -> message.ifBlank { "Bluetooth connection failed" }
         }
     }
 

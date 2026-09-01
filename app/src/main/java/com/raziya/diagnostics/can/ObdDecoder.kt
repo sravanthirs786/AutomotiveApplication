@@ -17,6 +17,9 @@ data class LiveReading(
 )
 
 data class VehicleStatus(
+    val bodyDataAvailable: Boolean = false,
+    val tpmsDataAvailable: Boolean = false,
+    val chassisDataAvailable: Boolean = false,
     val frontLeftDoorOpen: Boolean = false,
     val frontRightDoorOpen: Boolean = false,
     val rearLeftDoorOpen: Boolean = false,
@@ -61,6 +64,7 @@ object ObdDecoder {
             0xD100 -> {
                 val flags = payload[3].u()
                 current.copy(
+                    bodyDataAvailable = true,
                     frontLeftDoorOpen = flags and 0x01 != 0,
                     frontRightDoorOpen = flags and 0x02 != 0,
                     rearLeftDoorOpen = flags and 0x04 != 0,
@@ -72,15 +76,19 @@ object ObdDecoder {
                 )
             }
             0xD200 -> if (payload.size >= 11) current.copy(
+                tpmsDataAvailable = true,
                 tyrePressureKpa = (0 until 4).map { i -> ((payload[3 + i * 2].u() shl 8) or payload[4 + i * 2].u()) }
             ) else current
             0xD201 -> if (payload.size >= 7) current.copy(
+                tpmsDataAvailable = true,
                 tyreTemperatureC = (0 until 4).map { i -> payload[3 + i].u() - 40 }
             ) else current
             0xD300 -> if (payload.size >= 11) current.copy(
+                chassisDataAvailable = true,
                 wheelSpeedKph = (0 until 4).map { i -> ((payload[3 + i * 2].u() shl 8) or payload[4 + i * 2].u()) / 100.0 }
             ) else current
             0xD400 -> if (payload.size >= 5) current.copy(
+                chassisDataAvailable = true,
                 selectedGear = listOf("P", "R", "N", "D", "S").getOrNull(payload[3].u()) ?: "?",
                 transmissionTemperatureC = payload[4].u() - 40,
             ) else current
