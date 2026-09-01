@@ -82,6 +82,10 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
             vm.startBluetoothScan()
         }
     }
+    val requestConnection = {
+        val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        permissionLauncher.launch(permissions)
+    }
 
     if (state.vehicleProfile == null) {
         VehicleIntakeScreen(onContinue = vm::selectVehicle)
@@ -103,6 +107,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
 
     LaunchedEffect(state.scanCompletedAt) {
         if (state.scanCompletedAt != null) {
+            section = AppSection.LIVE
             snackbarHostState.showSnackbar(
                 message = "Diagnosis complete — ${state.dtcs.size} issues detected. Report ready.",
                 withDismissAction = true,
@@ -139,13 +144,10 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { Header(state.connected, state.vehicleProfile, vm::changeVehicle) { if (state.connected) vm.disconnect() else {
-                val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-                permissionLauncher.launch(permissions)
-            } } }
+            item { Header(state.vehicleProfile, vm::changeVehicle) }
             when (section) {
                 AppSection.OVERVIEW -> {
-                    item { HeroCard(state, onScan = { section = AppSection.DIAGNOSE; vm.runHealthScan() }) }
+                    item { HeroCard(state, onConnect = requestConnection, onDisconnect = vm::disconnect, onScan = vm::runHealthScan) }
                     item { SectionTitle("AT A GLANCE", "The essentials for roadside triage") }
                     item { TelemetryGrid(state.readings, compact = true) }
                     item { QuickAlerts(state) { section = AppSection.VEHICLE } }
@@ -156,7 +158,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                 }
                 AppSection.DIAGNOSE -> {
                     item { SectionTitle("COMPLETE DIAGNOSIS", "Scan emissions and lab ECU modules") }
-                    item { HeroCard(state, onScan = vm::runHealthScan) }
+                    item { HeroCard(state, onConnect = requestConnection, onDisconnect = vm::disconnect, onScan = vm::runHealthScan) }
                     if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
                 }
                 AppSection.VEHICLE -> {
@@ -175,6 +177,9 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
     }
 
     if (showDevices) DevicePicker(state, vm, onDismiss = { vm.stopBluetoothScan(); showDevices = false })
+    LaunchedEffect(state.connected) {
+        if (state.connected) showDevices = false
+    }
     state.error?.let { error ->
         AlertDialog(onDismissRequest = vm::dismissError, confirmButton = { TextButton(onClick = vm::dismissError) { Text("OK") } },
             icon = { Icon(Icons.Rounded.ErrorOutline, null) }, title = { Text("Connection issue") }, text = { Text(error) })
@@ -238,7 +243,7 @@ private fun VehicleIntakeScreen(onContinue: (VehicleProfile) -> Unit) {
 }
 
 @Composable
-private fun Header(connected: Boolean, profile: VehicleProfile?, onChangeVehicle: () -> Unit, onConnection: () -> Unit) {
+private fun Header(profile: VehicleProfile?, onChangeVehicle: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Box(Modifier.size(44.dp).background(Mint, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.CarRepair, null, tint = Ink)
@@ -249,32 +254,40 @@ private fun Header(connected: Boolean, profile: VehicleProfile?, onChangeVehicle
             Text(profile?.registrationNumber ?: "Registration unavailable", color = Mint, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         }
         TextButton(onClick = onChangeVehicle) { Text("CHANGE", style = MaterialTheme.typography.labelSmall) }
-        FilledTonalButton(onClick = onConnection) {
-            Icon(if (connected) Icons.Rounded.Close else Icons.Rounded.Bluetooth, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp)); Text(if (connected) "Disconnect" else "Connect")
-        }
     }
 }
 
 @Composable
-private fun HeroCard(state: DiagnosticsState, onScan: () -> Unit) {
+private fun HeroCard(state: DiagnosticsState, onConnect: () -> Unit, onDisconnect: () -> Unit, onScan: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = if (state.connected) Color(0xFF123B2C) else Surface), shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(22.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (state.connected) Icons.Rounded.CheckCircle else Icons.Rounded.Memory, null, tint = if (state.connected) Mint else Muted, modifier = Modifier.size(34.dp))
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text(if (state.connected) "Diagnostic link ready" else "Connect to VehicleSim-OBD", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Text(if (state.connected) "Binary CAN • ISO-TP • 500 kbit/s" else "Pair the Raspberry Pi in Android settings first", color = Muted)
+                    Text(when { state.connecting -> "Connecting to vehicle…"; state.connected -> "Diagnostic link ready"; else -> "Connect to VehicleSim-OBD" }, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(if (state.connected) "Connected • ${state.deviceName ?: "Bluetooth interface"}" else "Scan for the Raspberry Pi diagnostic interface", color = Muted)
                 }
             }
             Spacer(Modifier.height(20.dp))
-            Button(onClick = onScan, enabled = state.connected && !state.healthScanRunning, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-                if (state.healthScanRunning) {
-                    CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(9.dp))
+            when {
+                state.healthScanRunning -> {
+                    LinearProgressIndicator(progress = { state.scanProgress }, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column { Text(state.scanStatus ?: "Scanning vehicle…", fontWeight = FontWeight.Bold); Text("${(state.scanProgress * 100).toInt()}% complete", color = Muted, style = MaterialTheme.typography.bodySmall) }
+                    }
                 }
-                Text(if (state.healthScanRunning) "SCANNING VEHICLE…" else "RUN COMPLETE HEALTH SCAN", fontWeight = FontWeight.Bold)
+                !state.connected -> Button(onClick = onConnect, enabled = !state.connecting, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    if (state.connecting) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp) else Icon(Icons.Rounded.Bluetooth, null, Modifier.size(19.dp))
+                    Spacer(Modifier.width(9.dp)); Text(if (state.connecting) "CONNECTING…" else "SCAN & CONNECT", fontWeight = FontWeight.Bold)
+                }
+                else -> {
+                    Button(onClick = onScan, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("RUN COMPLETE HEALTH SCAN", fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = onDisconnect, modifier = Modifier.align(Alignment.End)) { Text("DISCONNECT") }
+                }
             }
         }
     }

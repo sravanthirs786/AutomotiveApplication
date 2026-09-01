@@ -45,6 +45,8 @@ data class DiagnosticsState(
     val scanning: Boolean = false,
     val devices: List<BluetoothDevice> = emptyList(),
     val healthScanRunning: Boolean = false,
+    val scanStatus: String? = null,
+    val scanProgress: Float = 0f,
     val scanCompletedAt: Long? = null,
 )
 
@@ -72,6 +74,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     val updated = (current.devices + device).distinctBy { it.address }
                         .sortedWith(compareByDescending<BluetoothDevice> { it.name == "VehicleSim-OBD" }.thenBy { it.name ?: it.address })
                     current.copy(devices = updated)
+                }
+                if (device.name == "VehicleSim-OBD" && !_state.value.connecting && !_state.value.connected) {
+                    connect(device)
                 }
             },
             onFinished = { error -> _state.update { it.copy(scanning = false, error = error) } },
@@ -105,14 +110,20 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     fun runHealthScan() {
         if (!_state.value.connected || _state.value.healthScanRunning) return
         polling?.cancel()
-        _state.update { it.copy(healthScanRunning = true, scanCompletedAt = null, dtcs = emptyList(), error = null) }
+        _state.update { it.copy(healthScanRunning = true, scanStatus = "Preparing diagnostic session…", scanProgress = 0f, scanCompletedAt = null, dtcs = emptyList(), error = null) }
         viewModelScope.launch {
-            listOf(DiagnosticRequests.supportedPids, DiagnosticRequests.storedDtcs,
-                DiagnosticRequests.extendedSession, DiagnosticRequests.vin, DiagnosticRequests.udsDtcs)
-                .forEach { request -> send(request); delay(250) }
-            DiagnosticRequests.live.forEach { request -> send(request); delay(220) }
+            val requests = listOf(
+                DiagnosticRequests.supportedPids, DiagnosticRequests.storedDtcs,
+                DiagnosticRequests.extendedSession, DiagnosticRequests.vin, DiagnosticRequests.udsDtcs,
+            ) + DiagnosticRequests.live
+            requests.forEachIndexed { index, request ->
+                _state.update { it.copy(scanStatus = request.name, scanProgress = index.toFloat() / requests.size) }
+                send(request)
+                delay(if (index < 5) 350 else 240)
+            }
+            _state.update { it.copy(scanStatus = "Finalising findings and report…", scanProgress = .96f) }
             delay(500)
-            _state.update { it.copy(healthScanRunning = false, scanCompletedAt = System.currentTimeMillis()) }
+            _state.update { it.copy(healthScanRunning = false, scanStatus = "Scan complete", scanProgress = 1f, scanCompletedAt = System.currentTimeMillis()) }
             // The Bluetooth and diagnostic paths are now verified. Begin the
             // lightweight live-data loop only after the mechanic starts a scan.
             startPolling()
