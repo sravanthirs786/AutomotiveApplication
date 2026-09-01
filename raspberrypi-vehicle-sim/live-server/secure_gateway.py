@@ -24,9 +24,9 @@ def main() -> None:
     parser.add_argument("--internal", default="vcan0")
     args = parser.parse_args()
 
-    # Only functional OBD and the three defined physical ECU request addresses enter.
-    external_rx = filtered_socket(args.external, [0x7DF, 0x7E0, 0x7E1, 0x7E2])
-    internal_rx = filtered_socket(args.internal, [0x7E8, 0x7E9, 0x7EA])
+    # Functional OBD plus the lab ECM, TCM, ABS, BCM and TPMS endpoints.
+    external_rx = filtered_socket(args.external, [0x7DF, 0x7E0, 0x7E1, 0x7E2, 0x7E3, 0x7E4])
+    internal_rx = filtered_socket(args.internal, [0x7E8, 0x7E9, 0x7EA, 0x7EB, 0x7EC])
     external_tx = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
     external_tx.bind((args.external,))
     internal_tx = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
@@ -49,4 +49,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

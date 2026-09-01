@@ -7,6 +7,29 @@ data class LiveReading(
     val engineLoadPercent: Int? = null,
     val intakeTemperatureC: Int? = null,
     val controlModuleVoltage: Double? = null,
+    val fuelLevelPercent: Int? = null,
+    val throttlePercent: Int? = null,
+    val intakeManifoldKpa: Int? = null,
+    val massAirFlowGps: Double? = null,
+    val ambientTemperatureC: Int? = null,
+    val oilTemperatureC: Int? = null,
+    val fuelRateLph: Double? = null,
+)
+
+data class VehicleStatus(
+    val frontLeftDoorOpen: Boolean = false,
+    val frontRightDoorOpen: Boolean = false,
+    val rearLeftDoorOpen: Boolean = false,
+    val rearRightDoorOpen: Boolean = false,
+    val hoodOpen: Boolean = false,
+    val tailgateOpen: Boolean = false,
+    val locked: Boolean = true,
+    val ignitionOn: Boolean = true,
+    val tyrePressureKpa: List<Int?> = List(4) { null },
+    val tyreTemperatureC: List<Int?> = List(4) { null },
+    val wheelSpeedKph: List<Double?> = List(4) { null },
+    val selectedGear: String? = null,
+    val transmissionTemperatureC: Int? = null,
 )
 
 object ObdDecoder {
@@ -20,6 +43,46 @@ object ObdDecoder {
             0x0F -> current.copy(intakeTemperatureC = payload[2].u() - 40)
             0x42 -> if (payload.size >= 4) current.copy(
                 controlModuleVoltage = ((payload[2].u() shl 8) + payload[3].u()) / 1000.0
+            ) else current
+            0x0B -> current.copy(intakeManifoldKpa = payload[2].u())
+            0x10 -> if (payload.size >= 4) current.copy(massAirFlowGps = ((payload[2].u() shl 8) + payload[3].u()) / 100.0) else current
+            0x11 -> current.copy(throttlePercent = payload[2].u() * 100 / 255)
+            0x2F -> current.copy(fuelLevelPercent = payload[2].u() * 100 / 255)
+            0x46 -> current.copy(ambientTemperatureC = payload[2].u() - 40)
+            0x5C -> current.copy(oilTemperatureC = payload[2].u() - 40)
+            0x5E -> if (payload.size >= 4) current.copy(fuelRateLph = ((payload[2].u() shl 8) + payload[3].u()) * 0.05) else current
+            else -> current
+        }
+    }
+
+    fun updateVehicleStatus(payload: ByteArray, current: VehicleStatus): VehicleStatus {
+        if (payload.size < 4 || payload[0].u() != 0x62) return current
+        return when ((payload[1].u() shl 8) or payload[2].u()) {
+            0xD100 -> {
+                val flags = payload[3].u()
+                current.copy(
+                    frontLeftDoorOpen = flags and 0x01 != 0,
+                    frontRightDoorOpen = flags and 0x02 != 0,
+                    rearLeftDoorOpen = flags and 0x04 != 0,
+                    rearRightDoorOpen = flags and 0x08 != 0,
+                    hoodOpen = flags and 0x10 != 0,
+                    tailgateOpen = flags and 0x20 != 0,
+                    locked = flags and 0x40 != 0,
+                    ignitionOn = flags and 0x80 != 0,
+                )
+            }
+            0xD200 -> if (payload.size >= 11) current.copy(
+                tyrePressureKpa = (0 until 4).map { i -> ((payload[3 + i * 2].u() shl 8) or payload[4 + i * 2].u()) }
+            ) else current
+            0xD201 -> if (payload.size >= 7) current.copy(
+                tyreTemperatureC = (0 until 4).map { i -> payload[3 + i].u() - 40 }
+            ) else current
+            0xD300 -> if (payload.size >= 11) current.copy(
+                wheelSpeedKph = (0 until 4).map { i -> ((payload[3 + i * 2].u() shl 8) or payload[4 + i * 2].u()) / 100.0 }
+            ) else current
+            0xD400 -> if (payload.size >= 5) current.copy(
+                selectedGear = listOf("P", "R", "N", "D", "S").getOrNull(payload[3].u()) ?: "?",
+                transmissionTemperatureC = payload[4].u() - 40,
             ) else current
             else -> current
         }

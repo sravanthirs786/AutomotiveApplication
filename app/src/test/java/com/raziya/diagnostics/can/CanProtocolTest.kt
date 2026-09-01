@@ -34,5 +34,18 @@ class CanProtocolTest {
         )
     }
 
+    @Test fun bodyAndTpmsDidsDecode() {
+        val body = ObdDecoder.updateVehicleStatus(bytes("62 D1 00 C1"), VehicleStatus())
+        assertEquals(true, body.frontLeftDoorOpen)
+        assertEquals(false, body.frontRightDoorOpen)
+        assertEquals(true, body.locked)
+
+        val tpms = ObdDecoder.updateVehicleStatus(
+            bytes("62 D2 00 00 A8 00 E8 00 E6 00 E5"),
+            body,
+        )
+        assertEquals(listOf(168, 232, 230, 229), tpms.tyrePressureKpa)
+    }
+
     private fun bytes(hex: String) = hex.split(" ").map { it.toInt(16).toByte() }.toByteArray()
 }

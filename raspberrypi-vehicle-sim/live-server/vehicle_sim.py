@@ -79,7 +79,7 @@ class CanBus:
 
 
 class VehicleSimulator:
-    ENDPOINTS = {0x7E0: 0x7E8, 0x7E1: 0x7E9, 0x7E2: 0x7EA}
+    ENDPOINTS = {0x7E0: 0x7E8, 0x7E1: 0x7E9, 0x7E2: 0x7EA, 0x7E3: 0x7EB, 0x7E4: 0x7EC}
 
     def __init__(self, interface: str):
         self.bus = CanBus(interface)
@@ -206,6 +206,22 @@ class VehicleSimulator:
                 return b"\x59\x02\xFF" + records
             return self.negative(sid, 0x12)
         if sid == 0x22 and len(data) >= 2:
+            did = data[:2]
+            if did == b"\xD1\x00" and req_id == 0x7E3:
+                # FL door is deliberately open; bit 6 locked, bit 7 ignition.
+                return b"\x62\xD1\x00\xC1"
+            if did == b"\xD2\x00" and req_id == 0x7E4:
+                # FL tyre is deliberately low. Values are unsigned kPa, big endian.
+                pressures = (168, 232, 230, 229)
+                return b"\x62\xD2\x00" + b"".join(value.to_bytes(2, "big") for value in pressures)
+            if did == b"\xD2\x01" and req_id == 0x7E4:
+                return b"\x62\xD2\x01" + bytes(value + 40 for value in (37, 35, 34, 35))
+            if did == b"\xD3\x00" and req_id == 0x7E2:
+                speeds = (s.speed * 0.18, s.speed, s.speed, s.speed)
+                return b"\x62\xD3\x00" + b"".join(round(value * 100).to_bytes(2, "big") for value in speeds)
+            if did == b"\xD4\x00" and req_id == 0x7E1:
+                gear = 0 if s.speed < 1 else 3
+                return b"\x62\xD4\x00" + bytes((gear, 91 + 40))
             dids = {b"\xF1\x90": VIN, b"\xF1\x95": b"LAB-SW-1.0.0",
                     b"\xF1\x97": b"RPI4-VEHICLE-SIM", b"\xF1\x8C": b"ECU-LAB-0001"}
             answer = bytearray(b"\x62")

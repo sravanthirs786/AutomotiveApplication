@@ -11,6 +11,7 @@ import com.raziya.diagnostics.can.DiagnosticRequests
 import com.raziya.diagnostics.can.IsoTpReassembler
 import com.raziya.diagnostics.can.LiveReading
 import com.raziya.diagnostics.can.ObdDecoder
+import com.raziya.diagnostics.can.VehicleStatus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ data class DiagnosticsState(
     val connecting: Boolean = false,
     val deviceName: String? = null,
     val readings: LiveReading = LiveReading(),
+    val vehicleStatus: VehicleStatus = VehicleStatus(),
     val vin: String? = null,
     val dtcs: List<String> = emptyList(),
     val frames: List<FrameLog> = emptyList(),
@@ -134,7 +136,12 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         _state.update { current ->
             val vin = ObdDecoder.decodeVin(payload) ?: current.vin
             val dtcs = ObdDecoder.decodeObdDtcs(payload).ifEmpty { current.dtcs }
-            current.copy(readings = ObdDecoder.update(payload, current.readings), vin = vin, dtcs = dtcs)
+            current.copy(
+                readings = ObdDecoder.update(payload, current.readings),
+                vehicleStatus = ObdDecoder.updateVehicleStatus(payload, current.vehicleStatus),
+                vin = vin,
+                dtcs = dtcs,
+            )
         }
     }
 

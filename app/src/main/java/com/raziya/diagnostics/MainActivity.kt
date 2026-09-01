@@ -22,6 +22,13 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.TireRepair
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,6 +56,8 @@ private val Mint = Color(0xFF60F4B2)
 private val Muted = Color(0xFF9AAFA6)
 private val Warning = Color(0xFFFFC857)
 
+private enum class AppSection(val label: String) { OVERVIEW("Home"), LIVE("Live"), DIAGNOSE("Scan"), VEHICLE("Vehicle"), REPORTS("Reports") }
+
 @Composable
 fun RaziyaTheme(content: @Composable () -> Unit) {
     MaterialTheme(
@@ -63,6 +72,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showDevices by remember { mutableStateOf(false) }
+    var section by remember { mutableStateOf(AppSection.OVERVIEW) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) {
             showDevices = true
@@ -93,7 +103,30 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
         }
     }
 
-    Scaffold(containerColor = Ink, snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
+    Scaffold(
+        containerColor = Ink,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            NavigationBar(containerColor = Color(0xFF0C1814)) {
+                AppSection.entries.forEach { item ->
+                    val icon = when (item) {
+                        AppSection.OVERVIEW -> Icons.Rounded.Dashboard
+                        AppSection.LIVE -> Icons.Rounded.Speed
+                        AppSection.DIAGNOSE -> Icons.Rounded.FactCheck
+                        AppSection.VEHICLE -> Icons.Rounded.DirectionsCar
+                        AppSection.REPORTS -> Icons.Rounded.Description
+                    }
+                    NavigationBarItem(
+                        selected = section == item,
+                        onClick = { section = item },
+                        icon = { Icon(icon, item.label) },
+                        label = { Text(item.label) },
+                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Ink, indicatorColor = Mint),
+                    )
+                }
+            }
+        },
+    ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -102,10 +135,34 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                 val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
                 permissionLauncher.launch(permissions)
             } } }
-            item { HeroCard(state, onScan = vm::runHealthScan) }
-            item { Text("LIVE TELEMETRY", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
-            item { TelemetryGrid(state.readings) }
-            if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
+            when (section) {
+                AppSection.OVERVIEW -> {
+                    item { HeroCard(state, onScan = { section = AppSection.DIAGNOSE; vm.runHealthScan() }) }
+                    item { SectionTitle("AT A GLANCE", "The essentials for roadside triage") }
+                    item { TelemetryGrid(state.readings, compact = true) }
+                    item { QuickAlerts(state) { section = AppSection.VEHICLE } }
+                }
+                AppSection.LIVE -> {
+                    item { SectionTitle("LIVE DATA", "Standard OBD-II parameters from the engine ECU") }
+                    item { TelemetryGrid(state.readings) }
+                }
+                AppSection.DIAGNOSE -> {
+                    item { SectionTitle("COMPLETE DIAGNOSIS", "Scan emissions and lab ECU modules") }
+                    item { HeroCard(state, onScan = vm::runHealthScan) }
+                    if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
+                }
+                AppSection.VEHICLE -> {
+                    item { SectionTitle("BODY & CHASSIS", "Lab BCM, TPMS, ABS and transmission data") }
+                    item { DoorStatusCard(state.vehicleStatus) }
+                    item { TyreStatusCard(state.vehicleStatus) }
+                    item { DrivetrainCard(state.vehicleStatus) }
+                }
+                AppSection.REPORTS -> {
+                    item { SectionTitle("REPORTS", "Keep diagnosis separate from client documents") }
+                    if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
+                    else item { EmptyReportCard { section = AppSection.DIAGNOSE } }
+                }
+            }
         }
     }
 
@@ -159,7 +216,7 @@ private fun HeroCard(state: DiagnosticsState, onScan: () -> Unit) {
 }
 
 @Composable
-private fun TelemetryGrid(readings: com.raziya.diagnostics.can.LiveReading) {
+private fun TelemetryGrid(readings: com.raziya.diagnostics.can.LiveReading, compact: Boolean = false) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Metric("ENGINE SPEED", readings.rpm?.toString() ?: "—", "RPM", Modifier.weight(1f))
@@ -173,7 +230,95 @@ private fun TelemetryGrid(readings: com.raziya.diagnostics.can.LiveReading) {
             Metric("INTAKE AIR", readings.intakeTemperatureC?.toString() ?: "—", "°C", Modifier.weight(1f))
             Metric("MODULE VOLTAGE", readings.controlModuleVoltage?.let { "%.1f".format(it) } ?: "—", "V", Modifier.weight(1f))
         }
+        if (!compact) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Metric("FUEL LEVEL", readings.fuelLevelPercent?.toString() ?: "—", "%", Modifier.weight(1f))
+                Metric("THROTTLE", readings.throttlePercent?.toString() ?: "—", "%", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Metric("MANIFOLD", readings.intakeManifoldKpa?.toString() ?: "—", "kPa", Modifier.weight(1f))
+                Metric("AIR FLOW", readings.massAirFlowGps?.let { "%.1f".format(it) } ?: "—", "g/s", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Metric("OIL TEMP", readings.oilTemperatureC?.toString() ?: "—", "°C", Modifier.weight(1f))
+                Metric("AMBIENT", readings.ambientTemperatureC?.toString() ?: "—", "°C", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Metric("FUEL RATE", readings.fuelRateLph?.let { "%.1f".format(it) } ?: "—", "L/h", Modifier.weight(1f))
+                Spacer(Modifier.weight(1f))
+            }
+        }
     }
+}
+
+@Composable
+private fun SectionTitle(title: String, subtitle: String) {
+    Column { Text(title, color = Mint, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black); Text(subtitle, color = Muted) }
+}
+
+@Composable
+private fun QuickAlerts(state: DiagnosticsState, onOpen: () -> Unit) {
+    val lowTyres = state.vehicleStatus.tyrePressureKpa.count { it != null && it < 190 }
+    val openDoors = listOf(state.vehicleStatus.frontLeftDoorOpen, state.vehicleStatus.frontRightDoorOpen,
+        state.vehicleStatus.rearLeftDoorOpen, state.vehicleStatus.rearRightDoorOpen, state.vehicleStatus.hoodOpen,
+        state.vehicleStatus.tailgateOpen).count { it }
+    Card(onClick = onOpen, colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.ErrorOutline, null, tint = if (lowTyres + openDoors > 0) Warning else Mint)
+            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) {
+                Text("Vehicle alerts", fontWeight = FontWeight.Bold)
+                Text(if (state.scanCompletedAt == null) "Run a scan to read body and tyre status" else "$openDoors open panels • $lowTyres low tyres", color = Muted)
+            }; Text("VIEW", color = Mint, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun DoorStatusCard(status: com.raziya.diagnostics.can.VehicleStatus) {
+    val panels = listOf("Front left" to status.frontLeftDoorOpen, "Front right" to status.frontRightDoorOpen,
+        "Rear left" to status.rearLeftDoorOpen, "Rear right" to status.rearRightDoorOpen,
+        "Hood" to status.hoodOpen, "Tailgate" to status.tailgateOpen)
+    Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Icon(if (status.locked) Icons.Rounded.Lock else Icons.Rounded.LockOpen, null, tint = Mint); Spacer(Modifier.width(10.dp)); Text("Doors & access", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
+            Spacer(Modifier.height(14.dp)); panels.chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { row.forEach { (name, open) ->
+                    Surface(Modifier.weight(1f).padding(vertical = 4.dp), color = if (open) Warning.copy(alpha = .12f) else Color.White.copy(alpha = .04f), shape = RoundedCornerShape(12.dp)) {
+                        Column(Modifier.padding(12.dp)) { Text(name, color = Muted, style = MaterialTheme.typography.labelMedium); Text(if (open) "OPEN" else "Closed", color = if (open) Warning else Mint, fontWeight = FontWeight.Bold) }
+                    }
+                } }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TyreStatusCard(status: com.raziya.diagnostics.can.VehicleStatus) {
+    val names = listOf("Front left", "Front right", "Rear left", "Rear right")
+    Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.TireRepair, null, tint = Mint); Spacer(Modifier.width(10.dp)); Text("Tyre pressure", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
+            Spacer(Modifier.height(14.dp)); names.forEachIndexed { i, name ->
+                val pressure = status.tyrePressureKpa[i]; val low = pressure != null && pressure < 190
+                ListItem(headlineContent = { Text(name) }, supportingContent = { Text(status.tyreTemperatureC[i]?.let { "$it °C" } ?: "Temperature unavailable") }, trailingContent = { Text(pressure?.let { "$it kPa" } ?: "—", color = if (low) Warning else Mint, fontWeight = FontWeight.Black) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            }
+            Text("Thresholds are lab settings. Real TPMS availability and limits are vehicle-specific.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun DrivetrainCard(status: com.raziya.diagnostics.can.VehicleStatus) {
+    Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(22.dp)) { Row(Modifier.fillMaxWidth().padding(20.dp)) {
+        Metric("SELECTED GEAR", status.selectedGear ?: "—", "", Modifier.weight(1f)); Spacer(Modifier.width(10.dp)); Metric("TRANSMISSION", status.transmissionTemperatureC?.toString() ?: "—", "°C", Modifier.weight(1f))
+    } }
+}
+
+@Composable
+private fun EmptyReportCard(onScan: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(22.dp)) { Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(Icons.Rounded.Description, null, tint = Muted, modifier = Modifier.size(44.dp)); Spacer(Modifier.height(12.dp)); Text("No report yet", fontWeight = FontWeight.Bold); Text("Complete a vehicle scan first.", color = Muted); Spacer(Modifier.height(16.dp)); Button(onClick = onScan) { Text("GO TO DIAGNOSIS") }
+    } }
 }
 
 @Composable
