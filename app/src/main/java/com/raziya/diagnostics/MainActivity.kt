@@ -105,9 +105,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
             item { HeroCard(state, onScan = vm::runHealthScan) }
             item { Text("LIVE TELEMETRY", color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) }
             item { TelemetryGrid(state.readings) }
-            item { VehicleIdentity(state.vin, state.dtcs) }
             if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
-            item { FrameMonitor(state.frames) }
         }
     }
 
