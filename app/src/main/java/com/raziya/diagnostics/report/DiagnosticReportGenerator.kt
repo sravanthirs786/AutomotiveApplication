@@ -74,6 +74,30 @@ object DiagnosticReportGenerator {
         line("Engine load: ${state.readings.engineLoadPercent?.let { "$it %" } ?: "Unavailable"}")
         line("Intake temperature: ${state.readings.intakeTemperatureC?.let { "$it °C" } ?: "Unavailable"}")
         line("Control-module voltage: ${state.readings.controlModuleVoltage?.let { "%.2f V".format(it) } ?: "Unavailable"}")
+        line("Fuel level: ${state.readings.fuelLevelPercent?.let { "$it %" } ?: "Unavailable"}")
+        line("Throttle: ${state.readings.throttlePercent?.let { "$it %" } ?: "Unavailable"}")
+        line("Engine oil temperature: ${state.readings.oilTemperatureC?.let { "$it °C" } ?: "Unavailable"}")
+        line("Fuel rate: ${state.readings.fuelRateLph?.let { "%.2f L/h".format(it) } ?: "Unavailable"}")
+        y += 8
+        line("BODY, TYRES & DRIVETRAIN", section, 20f)
+        val openPanels = buildList {
+            if (state.vehicleStatus.frontLeftDoorOpen) add("front-left door")
+            if (state.vehicleStatus.frontRightDoorOpen) add("front-right door")
+            if (state.vehicleStatus.rearLeftDoorOpen) add("rear-left door")
+            if (state.vehicleStatus.rearRightDoorOpen) add("rear-right door")
+            if (state.vehicleStatus.hoodOpen) add("hood")
+            if (state.vehicleStatus.tailgateOpen) add("tailgate")
+        }
+        line("Open panels: ${openPanels.ifEmpty { listOf("None reported") }.joinToString()}")
+        line("Central locking: ${if (state.vehicleStatus.locked) "Locked" else "Unlocked"}")
+        val tyreNames = listOf("FL", "FR", "RL", "RR")
+        tyreNames.forEachIndexed { index, name ->
+            val pressure = state.vehicleStatus.tyrePressureKpa[index]?.let { "$it kPa" } ?: "Unavailable"
+            val temperature = state.vehicleStatus.tyreTemperatureC[index]?.let { "$it °C" } ?: "Unavailable"
+            line("Tyre $name: $pressure, $temperature")
+        }
+        line("Selected gear: ${state.vehicleStatus.selectedGear ?: "Unavailable"}")
+        line("Transmission temperature: ${state.vehicleStatus.transmissionTemperatureC?.let { "$it °C" } ?: "Unavailable"}")
         y += 8
         line("DETECTED ISSUES (${issues.size})", section, 22f)
         if (issues.isEmpty()) line("No stored diagnostic trouble codes were reported.")
