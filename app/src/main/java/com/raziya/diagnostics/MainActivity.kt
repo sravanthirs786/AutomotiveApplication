@@ -43,6 +43,11 @@ import androidx.core.content.FileProvider
 import com.raziya.diagnostics.report.DiagnosticReportGenerator
 import com.raziya.diagnostics.report.DtcCatalog
 import com.raziya.diagnostics.report.Severity
+import com.raziya.diagnostics.history.ScanRecord
+import com.raziya.diagnostics.history.toDiagnosticsState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,14 +95,14 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
         return
     }
 
-    val shareReport: () -> Unit = {
+    val shareReport: (DiagnosticsState) -> Unit = { reportState ->
         runCatching {
-            val report = DiagnosticReportGenerator.generate(context, state)
+            val report = DiagnosticReportGenerator.generate(context, reportState)
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", report)
             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                 type = "application/pdf"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "Vehicle diagnostic report — ${state.vin ?: "VIN unavailable"}")
+                putExtra(Intent.EXTRA_SUBJECT, "Vehicle diagnostic report — ${reportState.vin ?: "VIN unavailable"}")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }, "Share diagnostic report"))
         }.onFailure { error -> vm.reportError(error.message ?: "Unable to create diagnostic report") }
@@ -155,9 +160,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                     item { DrivetrainCard(state.vehicleStatus) }
                 }
                 AppSection.REPORTS -> {
-                    item { SectionTitle("REPORTS", "Keep diagnosis separate from client documents") }
-                    if (state.scanCompletedAt != null) item { DiagnosticReportCard(state, shareReport) }
-                    else item { EmptyReportCard { section = AppSection.OVERVIEW } }
+                    item { ReportsHistoryScreen(state.scanHistory, shareReport) { section = AppSection.OVERVIEW } }
                 }
             }
         }
@@ -383,6 +386,103 @@ private fun DrivetrainCard(status: com.raziya.diagnostics.can.VehicleStatus) {
         Metric("SELECTED GEAR", status.selectedGear ?: "—", "", Modifier.weight(1f)); Spacer(Modifier.width(10.dp)); Metric("TRANSMISSION", status.transmissionTemperatureC?.toString() ?: "—", "°C", Modifier.weight(1f))
     } }
 }
+
+private enum class ReportSection { DIAGNOSTIC_REPORTS, SCAN_DATA }
+
+@Composable
+private fun ReportsHistoryScreen(
+    records: List<ScanRecord>,
+    onExport: (DiagnosticsState) -> Unit,
+    onGoHome: () -> Unit,
+) {
+    var reportSection by rememberSaveable { mutableStateOf(ReportSection.DIAGNOSTIC_REPORTS) }
+    var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SectionTitle("REPORTS", "Saved locally and arranged by scan date")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FilterChip(
+                selected = reportSection == ReportSection.DIAGNOSTIC_REPORTS,
+                onClick = { reportSection = ReportSection.DIAGNOSTIC_REPORTS; selectedId = null },
+                label = { Text("Diagnostic reports") }, modifier = Modifier.weight(1f),
+            )
+            FilterChip(
+                selected = reportSection == ReportSection.SCAN_DATA,
+                onClick = { reportSection = ReportSection.SCAN_DATA; selectedId = null },
+                label = { Text("Scan data") }, modifier = Modifier.weight(1f),
+            )
+        }
+        if (records.isEmpty()) {
+            EmptyReportCard(onGoHome)
+            return@Column
+        }
+        records.groupBy { formatScanDay(it.scannedAt) }.forEach { (day, dayRecords) ->
+            Text(day.uppercase(), color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
+            dayRecords.forEach { record ->
+                HistoryRecordCard(record, reportSection, selectedId == record.id) {
+                    selectedId = if (selectedId == record.id) null else record.id
+                }
+                if (selectedId == record.id) {
+                    val historicalState = remember(record.id) { record.toDiagnosticsState() }
+                    when (reportSection) {
+                        ReportSection.DIAGNOSTIC_REPORTS -> DiagnosticReportCard(historicalState) { onExport(historicalState) }
+                        ReportSection.SCAN_DATA -> ScanDataPreview(historicalState)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryRecordCard(record: ScanRecord, section: ReportSection, expanded: Boolean, onClick: () -> Unit) {
+    val issueCount = record.dtcs.split(",").count { it.isNotBlank() }
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(42.dp).background(Mint.copy(alpha = .12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                Icon(if (section == ReportSection.DIAGNOSTIC_REPORTS) Icons.Rounded.Description else Icons.Rounded.Memory, null, tint = Mint)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("${record.vehicleName} • ${record.registrationNumber}", fontWeight = FontWeight.Bold)
+                Text(formatScanTime(record.scannedAt), color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text(if (section == ReportSection.DIAGNOSTIC_REPORTS) "$issueCount diagnostic findings" else "Complete ECU scan snapshot", color = if (issueCount > 0) Warning else Mint, style = MaterialTheme.typography.bodySmall)
+            }
+            Text(if (expanded) "CLOSE" else "VIEW", color = Mint, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun ScanDataPreview(state: DiagnosticsState) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF17251F)), shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("COMPLETE SCAN DATA", color = Mint, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelMedium)
+            Text("${state.vehicleProfile?.vehicleName} • ${state.vehicleProfile?.registrationNumber}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Text("${formatScanTime(state.scanCompletedAt ?: 0)} • VIN ${state.vin ?: "Unavailable"}", color = Muted)
+            HorizontalDivider(color = Color.White.copy(alpha = .08f))
+            Text("STANDARD OBD PARAMETERS", color = Muted, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+            TelemetryGrid(state.readings)
+            Text("BODY & CHASSIS", color = Muted, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+            DoorStatusCard(state.vehicleStatus)
+            TyreStatusCard(state.vehicleStatus)
+            DrivetrainCard(state.vehicleStatus)
+            Text("DIAGNOSTIC CODES (${state.dtcs.size})", color = Muted, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+            if (state.dtcs.isEmpty()) Text("No stored diagnostic codes", color = Mint)
+            else Text(state.dtcs.joinToString(" • "), color = Warning, fontWeight = FontWeight.Bold)
+            Text("RAW SCAN FRAMES (${state.frames.size})", color = Muted, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+            if (state.frames.isEmpty()) Text("No retained frames", color = Muted)
+            state.frames.forEach { log ->
+                Text("${log.direction}  %03X  [%d]  %s".format(log.frame.id, log.frame.dlc, log.frame.hex), color = if (log.direction == "TX") Warning else Mint, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+private fun formatScanDay(timestamp: Long): String =
+    SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(Date(timestamp))
+
+private fun formatScanTime(timestamp: Long): String =
+    SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", Locale.getDefault()).format(Date(timestamp))
 
 @Composable
 private fun EmptyReportCard(onScan: () -> Unit) {

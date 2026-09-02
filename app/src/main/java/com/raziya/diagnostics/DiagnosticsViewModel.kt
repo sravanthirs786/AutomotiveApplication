@@ -12,6 +12,9 @@ import com.raziya.diagnostics.can.IsoTpReassembler
 import com.raziya.diagnostics.can.LiveReading
 import com.raziya.diagnostics.can.ObdDecoder
 import com.raziya.diagnostics.can.VehicleStatus
+import com.raziya.diagnostics.history.ScanHistoryDatabase
+import com.raziya.diagnostics.history.ScanRecord
+import com.raziya.diagnostics.history.toScanRecord
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,14 +51,24 @@ data class DiagnosticsState(
     val scanStatus: String? = null,
     val scanProgress: Float = 0f,
     val scanCompletedAt: Long? = null,
+    val scanHistory: List<ScanRecord> = emptyList(),
 )
 
 class DiagnosticsViewModel(application: Application) : AndroidViewModel(application) {
     private val client = RawCanBluetoothClient(application)
+    private val scanRecords = ScanHistoryDatabase.get(application).scanRecords()
     private val isoTpById = mutableMapOf<Int, IsoTpReassembler>()
     private val _state = MutableStateFlow(DiagnosticsState())
     val state: StateFlow<DiagnosticsState> = _state.asStateFlow()
     private var polling: Job? = null
+
+    init {
+        viewModelScope.launch {
+            scanRecords.observeAll().collect { records ->
+                _state.update { it.copy(scanHistory = records) }
+            }
+        }
+    }
 
     fun pairedDevices(): List<BluetoothDevice> = runCatching { client.bondedDevices() }.getOrDefault(emptyList())
 
@@ -63,7 +76,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun changeVehicle() {
         disconnect()
-        _state.value = DiagnosticsState()
+        _state.value = DiagnosticsState(scanHistory = _state.value.scanHistory)
     }
 
     fun startBluetoothScan() {
@@ -129,7 +142,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             }
             _state.update { it.copy(scanStatus = "Finalising findings and report…", scanProgress = .96f) }
             delay(500)
-            _state.update { it.copy(healthScanRunning = false, scanStatus = "Scan complete", scanProgress = 1f, scanCompletedAt = System.currentTimeMillis()) }
+            val completed = _state.value.copy(
+                healthScanRunning = false, scanStatus = "Scan complete", scanProgress = 1f,
+                scanCompletedAt = System.currentTimeMillis(),
+            )
+            _state.value = completed
+            runCatching { scanRecords.insert(completed.toScanRecord()) }
+                .onFailure { error -> _state.update { it.copy(error = "Scan completed, but history could not be saved: ${error.message}") } }
             // The Bluetooth and diagnostic paths are now verified. Begin the
             // lightweight live-data loop only after the mechanic starts a scan.
             startPolling()
