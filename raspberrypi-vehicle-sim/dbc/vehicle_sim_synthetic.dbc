@@ -1,15 +1,74 @@
-VERSION "Vehicle simulator synthetic lab signals - not Kia proprietary data"
+VERSION "RAZIYA synthetic multi-ECU lab schema v2 - not OEM/Kia data"
 NS_ :
 BS_:
-BU_: ECM TCM ABS GATEWAY
+BU_: ECM TCM ABS BCM TPMS CLUSTER GATEWAY
 
-BO_ 384 PowertrainStatus: 4 ECM
- SG_ EngineRPM : 0|16@0+ (1,0) [0|8000] "rpm" ECM
- SG_ VehicleSpeed : 16|8@0+ (1,0) [0|255] "km/h" ECM
- SG_ RollingCounter : 24|8@0+ (1,0) [0|255] "" ECM
+BO_ 256 EngineStatus: 8 ECM
+ SG_ EngineRPM : 0|16@1+ (0.25,0) [0|8000] "rpm" ECM
+ SG_ ThrottlePosition : 16|8@1+ (0.4,0) [0|100] "%" ECM
+ SG_ EngineLoad : 24|8@1+ (1,0) [0|100] "%" ECM
+ SG_ IgnitionOn : 32|1@1+ (1,0) [0|1] "" ECM
+ SG_ EngineRunning : 33|1@1+ (1,0) [0|1] "" ECM
+ SG_ MalfunctionIndicator : 34|1@1+ (1,0) [0|1] "" ECM
 
-BO_ 640 EngineStatus: 4 ECM
- SG_ VehicleSpeed : 0|8@0+ (1,0) [0|255] "km/h" ECM
- SG_ Throttle : 8|8@0+ (1,0) [0|100] "%" ECM
- SG_ CoolantEncoded : 16|8@0+ (1,-40) [-40|215] "degC" ECM
- SG_ RollingCounter : 24|4@0+ (1,0) [0|15] "" ECM
+BO_ 257 VehicleEnvironment: 8 ECM
+ SG_ VehicleSpeed : 0|16@1+ (0.01,0) [0|300] "km/h" ECM
+ SG_ CoolantTemperature : 16|8@1+ (1,-40) [-40|215] "degC" ECM
+ SG_ IntakeAirTemperature : 24|8@1+ (1,-40) [-40|215] "degC" ECM
+ SG_ ModuleVoltage : 32|16@1+ (0.001,0) [0|65.535] "V" ECM
+
+BO_ 288 WheelSpeeds: 8 ABS
+ SG_ FrontLeftWheelSpeed : 0|16@1+ (0.01,0) [0|300] "km/h" ABS
+ SG_ FrontRightWheelSpeed : 16|16@1+ (0.01,0) [0|300] "km/h" ABS
+ SG_ RearLeftWheelSpeed : 32|16@1+ (0.01,0) [0|300] "km/h" ABS
+ SG_ RearRightWheelSpeed : 48|16@1+ (0.01,0) [0|300] "km/h" ABS
+
+BO_ 304 ChassisDynamics: 8 ABS
+ SG_ SteeringWheelAngle : 0|16@1- (0.1,0) [-780|780] "deg" ABS
+ SG_ BrakePressure : 16|16@1+ (0.1,0) [0|250] "bar" ABS
+ SG_ AcceleratorPosition : 32|16@1- (0.001,0) [0|1] "ratio" ECM
+
+BO_ 384 TransmissionStatus: 8 TCM
+ SG_ SelectedGear : 0|8@1+ (1,0) [0|4] "" TCM
+ SG_ EngagedRatio : 8|8@1+ (1,0) [0|8] "" TCM
+ SG_ TransmissionOilTemperature : 16|8@1+ (1,-40) [-40|215] "degC" TCM
+ SG_ Odometer : 32|32@1+ (0.1,0) [0|1000000] "km" CLUSTER
+VAL_ 384 SelectedGear 0 "P" 1 "R" 2 "N" 3 "D" 4 "S";
+
+BO_ 513 FuelAndRange: 8 ECM
+ SG_ FuelLevel : 0|8@1+ (0.4,0) [0|100] "%" ECM
+ SG_ EstimatedRange : 16|16@1+ (1,0) [0|2000] "km" ECM
+ SG_ AverageConsumption : 32|16@1+ (0.01,0) [0|100] "L/100km" ECM
+
+BO_ 768 BodyStatus: 8 BCM
+ SG_ FrontLeftDoorOpen : 0|1@1+ (1,0) [0|1] "" BCM
+ SG_ FrontRightDoorOpen : 1|1@1+ (1,0) [0|1] "" BCM
+ SG_ RearLeftDoorOpen : 2|1@1+ (1,0) [0|1] "" BCM
+ SG_ RearRightDoorOpen : 3|1@1+ (1,0) [0|1] "" BCM
+ SG_ HoodOpen : 4|1@1+ (1,0) [0|1] "" BCM
+ SG_ TailgateOpen : 5|1@1+ (1,0) [0|1] "" BCM
+ SG_ CentralLocked : 6|1@1+ (1,0) [0|1] "" BCM
+ SG_ IgnitionOn : 7|1@1+ (1,0) [0|1] "" BCM
+ SG_ LowBeamOn : 8|1@1+ (1,0) [0|1] "" BCM
+ SG_ HazardLightsOn : 9|1@1+ (1,0) [0|1] "" BCM
+ SG_ ParkingBrakeEngaged : 16|1@1+ (1,0) [0|1] "" BCM
+ SG_ DriverBeltFastened : 17|1@1+ (1,0) [0|1] "" BCM
+ SG_ PassengerBeltFastened : 18|1@1+ (1,0) [0|1] "" BCM
+
+BO_ 784 TirePressure: 8 TPMS
+ SG_ FrontLeftPressure : 0|16@1+ (1,0) [0|700] "kPa" TPMS
+ SG_ FrontRightPressure : 16|16@1+ (1,0) [0|700] "kPa" TPMS
+ SG_ RearLeftPressure : 32|16@1+ (1,0) [0|700] "kPa" TPMS
+ SG_ RearRightPressure : 48|16@1+ (1,0) [0|700] "kPa" TPMS
+
+BO_ 785 TireTemperatureAndBattery: 8 TPMS
+ SG_ FrontLeftTemperature : 0|8@1+ (1,-40) [-40|215] "degC" TPMS
+ SG_ FrontRightTemperature : 8|8@1+ (1,-40) [-40|215] "degC" TPMS
+ SG_ RearLeftTemperature : 16|8@1+ (1,-40) [-40|215] "degC" TPMS
+ SG_ RearRightTemperature : 24|8@1+ (1,-40) [-40|215] "degC" TPMS
+ SG_ FrontLeftSensorBattery : 32|8@1+ (1,0) [0|100] "%" TPMS
+ SG_ FrontRightSensorBattery : 40|8@1+ (1,0) [0|100] "%" TPMS
+ SG_ RearLeftSensorBattery : 48|8@1+ (1,0) [0|100] "%" TPMS
+ SG_ RearRightSensorBattery : 56|8@1+ (1,0) [0|100] "%" TPMS
+
+CM_ "All arbitration IDs and DIDs are synthetic lab identifiers. Signal names and units follow real-world conventions; this is not a Kia or other OEM DBC.";

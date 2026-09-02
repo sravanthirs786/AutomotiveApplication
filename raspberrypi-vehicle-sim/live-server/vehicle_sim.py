@@ -32,6 +32,26 @@ class VehicleState:
     voltage: float = 11.6
     fuel: float = 62.0
     odometer: float = 18432.7
+    steering_angle: float = 0.0
+    brake_pressure: float = 0.0
+    gear: int = 0  # 0=P, 1=R, 2=N, 3=D, 4=S
+    transmission_temp: float = 72.0
+    front_left_door_open: bool = False
+    front_right_door_open: bool = False
+    rear_left_door_open: bool = False
+    rear_right_door_open: bool = False
+    hood_open: bool = False
+    tailgate_open: bool = False
+    locked: bool = True
+    ignition_on: bool = True
+    parking_brake: bool = False
+    driver_belt_fastened: bool = True
+    passenger_belt_fastened: bool = True
+    low_beam_on: bool = False
+    hazard_on: bool = False
+    tyre_pressure: tuple[float, float, float, float] = (168.0, 232.0, 230.0, 229.0)
+    tyre_temperature: tuple[float, float, float, float] = (31.0, 30.0, 30.0, 30.0)
+    tpms_battery: tuple[int, int, int, int] = (78, 91, 88, 86)
     # Deliberate roadside-breakdown scenario:
     # P0300 misfire, P0117 coolant sensor, P0562 low voltage,
     # P0420 catalyst, C0035 wheel-speed sensor, U0100/U0101 communication loss.
@@ -61,6 +81,42 @@ class VehicleState:
         # Faulted cooling system slowly overheats and charging voltage sags.
         self.coolant = min(114.0, 101.0 + t / 90.0)
         self.voltage = max(10.9, 11.8 - t / 1800.0)
+        self.steering_angle = 12.0 * math.sin(t / 5.0)
+        self.brake_pressure = 18.0 if 50.0 < phase < 70.0 else 0.0
+        stopped = self.speed < 1.0
+        self.gear = 0 if stopped else 3
+        self.transmission_temp = min(96.0, 72.0 + t / 180.0)
+        # Body state follows a plausible roadside sequence: doors remain closed while
+        # moving; the driver door opens only after the vehicle has stopped.
+        self.front_left_door_open = stopped and phase >= 78.0
+        self.locked = phase < 70.0
+        self.parking_brake = phase >= 78.0
+        self.driver_belt_fastened = phase < 78.0
+        self.low_beam_on = phase >= 45.0
+        self.hazard_on = phase >= 70.0
+        heat = min(9.0, self.speed / 12.0)
+        self.tyre_temperature = (32.0 + heat, 31.0 + heat, 30.0 + heat, 30.5 + heat)
+        # Direct TPMS values rise slightly with tyre temperature; FL remains
+        # deliberately underinflated for the roadside fault scenario.
+        self.tyre_pressure = (
+            168.0 + heat * 0.35, 232.0 + heat * 0.45,
+            230.0 + heat * 0.45, 229.0 + heat * 0.45,
+        )
+
+    def body_flags(self) -> int:
+        values = (
+            self.front_left_door_open, self.front_right_door_open,
+            self.rear_left_door_open, self.rear_right_door_open,
+            self.hood_open, self.tailgate_open, self.locked, self.ignition_on,
+        )
+        return sum((1 << bit) for bit, active in enumerate(values) if active)
+
+    def body_secondary_flags(self) -> bytes:
+        lighting = (0x01 if self.low_beam_on else 0) | (0x02 if self.hazard_on else 0)
+        safety = ((0x01 if self.parking_brake else 0) |
+                  (0x02 if self.driver_belt_fastened else 0) |
+                  (0x04 if self.passenger_belt_fastened else 0))
+        return bytes((lighting, safety))
 
 
 class CanBus:
@@ -105,14 +161,16 @@ class VehicleSimulator:
         wheel = self.u16(s.speed, 0.01)
         failed_front_left = self.u16(max(0.0, s.speed * 0.18), 0.01)
         self.bus.send(0x120, failed_front_left + wheel + wheel + wheel)
-        steering = int(12.0 * math.sin(time.monotonic() / 5.0) / 0.1)
-        brake = 18.0 if (time.monotonic() - s.started_at) % 90 > 50 else 0.0
+        steering = int(s.steering_angle / 0.1)
+        brake = s.brake_pressure
         accel = (s.throttle / 100.0)
         self.bus.send(0x130, struct.pack("<hHhH", steering, round(brake / 0.1), round(accel / 0.001), 0))
-        gear = 0 if s.speed < 1 else min(6, max(1, int(s.speed / 18) + 1))
-        self.bus.send(0x180, bytes((3, gear, 0x01, 0)) + int(s.odometer / 0.1).to_bytes(4, "little"))
+        selected_ratio = 0 if s.gear == 0 else min(6, max(1, int(s.speed / 18) + 1))
+        self.bus.send(0x180, bytes((s.gear, selected_ratio, round(s.transmission_temp + 40), 0)) + int(s.odometer / 0.1).to_bytes(4, "little"))
         self.bus.send(0x201, bytes((round(s.fuel / 0.4), 0)) + self.u16(480, 1) + self.u16(7.8, 0.01) + b"\0\0")
-        self.bus.send(0x300, bytes((0, 0x01, 0x03, 0, 0, 0, 0, 0)))
+        self.bus.send(0x300, bytes((s.body_flags(),)) + s.body_secondary_flags() + b"\0\0\0\0\0")
+        self.bus.send(0x310, b"".join(round(value).to_bytes(2, "little") for value in s.tyre_pressure))
+        self.bus.send(0x311, bytes(round(value + 40) for value in s.tyre_temperature) + bytes(s.tpms_battery))
         fault_flags = 0x01 if s.dtcs and s.dtc_enabled else 0
         self.bus.send(0x400, bytes((fault_flags, 0, 0, 0, 0, 0, 0, 0)))
 
@@ -208,20 +266,25 @@ class VehicleSimulator:
         if sid == 0x22 and len(data) >= 2:
             did = data[:2]
             if did == b"\xD1\x00" and req_id == 0x7E3:
-                # FL door is deliberately open; bit 6 locked, bit 7 ignition.
-                return b"\x62\xD1\x00\xC1"
+                return b"\x62\xD1\x00" + bytes((s.body_flags(),))
+            if did == b"\xD1\x01" and req_id == 0x7E3:
+                return b"\x62\xD1\x01" + s.body_secondary_flags()
             if did == b"\xD2\x00" and req_id == 0x7E4:
-                # FL tyre is deliberately low. Values are unsigned kPa, big endian.
-                pressures = (168, 232, 230, 229)
-                return b"\x62\xD2\x00" + b"".join(value.to_bytes(2, "big") for value in pressures)
+                return b"\x62\xD2\x00" + b"".join(round(value).to_bytes(2, "big") for value in s.tyre_pressure)
             if did == b"\xD2\x01" and req_id == 0x7E4:
-                return b"\x62\xD2\x01" + bytes(value + 40 for value in (37, 35, 34, 35))
+                return b"\x62\xD2\x01" + bytes(round(value + 40) for value in s.tyre_temperature)
+            if did == b"\xD2\x02" and req_id == 0x7E4:
+                # Battery estimate followed by sensor-present flags (FL/FR/RL/RR).
+                return b"\x62\xD2\x02" + bytes(s.tpms_battery) + b"\x0F"
             if did == b"\xD3\x00" and req_id == 0x7E2:
                 speeds = (s.speed * 0.18, s.speed, s.speed, s.speed)
                 return b"\x62\xD3\x00" + b"".join(round(value * 100).to_bytes(2, "big") for value in speeds)
             if did == b"\xD4\x00" and req_id == 0x7E1:
-                gear = 0 if s.speed < 1 else 3
-                return b"\x62\xD4\x00" + bytes((gear, 91 + 40))
+                return b"\x62\xD4\x00" + bytes((s.gear, round(s.transmission_temp + 40)))
+            if did == b"\xD4\x01" and req_id == 0x7E1:
+                input_rpm = round(s.rpm)
+                output_rpm = round(s.speed * 38.0)
+                return b"\x62\xD4\x01" + input_rpm.to_bytes(2, "big") + output_rpm.to_bytes(2, "big")
             dids = {b"\xF1\x90": VIN, b"\xF1\x95": b"LAB-SW-1.0.0",
                     b"\xF1\x97": b"RPI4-VEHICLE-SIM", b"\xF1\x8C": b"ECU-LAB-0001"}
             answer = bytearray(b"\x62")

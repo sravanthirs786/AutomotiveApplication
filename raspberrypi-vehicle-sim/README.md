@@ -14,7 +14,7 @@ Android phone
 Bluetooth raw-CAN bridge
   │
 vcan_diag  (external diagnostic domain)
-  │ allowlist: 7DF, 7E0, 7E1, 7E2 only
+  │ allowlist: 7DF and physical ECU requests 7E0–7E4
   ▼
 Secure diagnostic gateway
   │
@@ -22,7 +22,9 @@ vcan0      (simulated in-vehicle CAN)
   ├── continuous vehicle signal generator, 10 Hz
   ├── ECM request 7E0 / response 7E8
   ├── TCM request 7E1 / response 7E9
-  └── ABS request 7E2 / response 7EA
+  ├── ABS request 7E2 / response 7EA
+  ├── BCM request 7E3 / response 7EB
+  └── TPMS request 7E4 / response 7EC
 ```
 
 ## 1. Required equipment
@@ -74,7 +76,8 @@ ip -details link show vcan_diag
 candump vcan0
 ```
 
-`candump vcan0` should continuously show IDs `180`, `280`, `380`, and `420` at approximately 10 Hz.
+`candump vcan0` should continuously include lab IDs `100`, `101`, `120`,
+`130`, `180`, `201`, `300`, `310`, `311`, and `400` at approximately 10 Hz.
 
 Test an OBD RPM request locally:
 
@@ -142,6 +145,26 @@ The leading `02` is the ISO-TP single-frame payload length. Do not add leading z
 | ECU software DID | 7E0 | `03 22 F1 87` | 7E8 | first frame `10 .. 62 F1 87` |
 | UDS DTC report | 7E0 | `03 19 02 FF` | 7E8 | first frame `10 .. 59 02 FF` |
 | Tester present | 7E0 | `02 3E 00` | 7E8 | `02 7E 00` |
+| Transmission status | 7E1 | `03 22 D4 00` | 7E9 | `.. 62 D4 00` |
+| Transmission speeds | 7E1 | `03 22 D4 01` | 7E9 | `.. 62 D4 01` |
+| Individual wheel speeds | 7E2 | `03 22 D3 00` | 7EA | `.. 62 D3 00` |
+| Doors/hood/tailgate/locks | 7E3 | `03 22 D1 00` | 7EB | `.. 62 D1 00` |
+| Lights/restraints/parking brake | 7E3 | `03 22 D1 01` | 7EB | `.. 62 D1 01` |
+| Four tyre pressures | 7E4 | `03 22 D2 00` | 7EC | `.. 62 D2 00` |
+| Four tyre temperatures | 7E4 | `03 22 D2 01` | 7EC | `.. 62 D2 01` |
+| TPMS sensor health/battery | 7E4 | `03 22 D2 02` | 7EC | `.. 62 D2 02` |
+
+The `D1xx`–`D4xx` data identifiers are RAZIYA lab identifiers, not standardized
+OBD PIDs or Kia identifiers. Multi-frame responses still use ISO-TP flow control.
+
+## Realistic state relationships
+
+The 90-second repeatable roadside scenario keeps doors closed and seat belts
+fastened while moving, locks the doors during the drive, heats tyres as speed
+increases, models a low front-left tyre, applies braking during slowdown, selects
+Park and the parking brake after stopping, then opens the driver door and enables
+hazard lights. Transmission temperature rises gradually and individual wheel-speed
+data includes a deliberate front-left sensor disagreement.
 
 For a multi-frame response, Android must send flow control after the first frame:
 
