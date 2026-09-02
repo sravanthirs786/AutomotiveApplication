@@ -68,6 +68,18 @@ The installer adds `bluez`, `bluez-tools`, `can-utils`, creates both virtual CAN
 
 ## 3. Confirm that the bench is running
 
+For an existing live-server installation, update it from the repository root with:
+
+```bash
+cd raspberrypi-vehicle-sim
+sudo chmod +x deploy/update-live-simulator.sh
+sudo ./deploy/update-live-simulator.sh
+```
+
+This validates the files, creates a timestamped backup under
+`/opt/vehicle-sim/backups`, installs the simulator and allowlisted gateway, then
+restarts and health-checks the services.
+
 ```bash
 systemctl --no-pager --failed
 systemctl status vehicle-sim-can vehicle-sim-traffic vehicle-sim-diagnostics vehicle-sim-gateway vehicle-sim-bluetooth

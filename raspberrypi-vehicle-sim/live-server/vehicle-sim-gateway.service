@@ -1,0 +1,19 @@
+[Unit]
+Description=Allowlisted gateway between diagnostic and internal vehicle CAN domains
+Requires=vcan0.service vcan_diag.service
+After=vcan0.service vcan_diag.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/vehicle-sim/secure_gateway.py --external vcan_diag --internal vcan0
+Restart=on-failure
+RestartSec=2
+User=vehiclesim
+Group=vehiclesim
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
