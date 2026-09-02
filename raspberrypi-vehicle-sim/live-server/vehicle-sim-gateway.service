@@ -1,7 +1,6 @@
 [Unit]
 Description=Allowlisted gateway between diagnostic and internal vehicle CAN domains
-Requires=vcan0.service vcan_diag.service
-After=vcan0.service vcan_diag.service
+After=network.target
 
 [Service]
 Type=simple
