@@ -68,17 +68,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun startBluetoothScan() {
         _state.update { it.copy(scanning = true, devices = emptyList(), error = null) }
-        val pairedSimulator = runCatching { client.bondedDevices().firstOrNull { it.name == "VehicleSim-OBD" } }.getOrNull()
-        if (pairedSimulator != null) {
-            _state.update { it.copy(scanning = false, devices = listOf(pairedSimulator)) }
-            connect(pairedSimulator)
-            return
-        }
         client.startDiscovery(
             onDevice = { device ->
                 _state.update { current ->
                     val updated = (current.devices + device).distinctBy { it.address }
-                        .sortedWith(compareByDescending<BluetoothDevice> { it.name == "VehicleSim-OBD" }.thenBy { it.name ?: it.address })
+                        .sortedBy { it.name?.lowercase() ?: it.address }
                     current.copy(devices = updated)
                 }
             },

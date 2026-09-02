@@ -132,7 +132,7 @@ class RawCanBluetoothClient(context: Context) {
         val message = error.message.orEmpty()
         return when {
             message.contains("read failed", ignoreCase = true) || message.contains("socket closed", ignoreCase = true) ->
-                "The Raspberry Pi closed the Bluetooth channel. Check that vehicle-sim-rfcomm is running, then reconnect."
+                "The diagnostic device closed the Bluetooth connection. Check its power and pairing, then reconnect."
             else -> message.ifBlank { "Bluetooth connection failed" }
         }
     }

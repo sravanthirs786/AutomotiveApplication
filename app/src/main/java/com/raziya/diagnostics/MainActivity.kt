@@ -258,8 +258,8 @@ private fun HeroCard(state: DiagnosticsState, onConnect: () -> Unit, onDisconnec
                 Icon(if (state.connected) Icons.Rounded.CheckCircle else Icons.Rounded.Memory, null, tint = if (state.connected) Mint else Muted, modifier = Modifier.size(34.dp))
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text(when { state.connecting -> "Connecting to vehicle…"; state.connected -> "Diagnostic link ready"; else -> "Connect to VehicleSim-OBD" }, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Text(if (state.connected) "Connected • ${state.deviceName ?: "Bluetooth interface"}" else "Scan for the Raspberry Pi diagnostic interface", color = Muted)
+                    Text(when { state.connecting -> "Connecting to diagnostic device…"; state.connected -> "Diagnostic device connected"; else -> "Connect diagnostic device" }, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(if (state.connected) "Connected • ${state.deviceName ?: "Bluetooth interface"}" else "Scan and select a compatible Bluetooth OBD interface", color = Muted)
                 }
             }
             Spacer(Modifier.height(20.dp))
@@ -275,7 +275,7 @@ private fun HeroCard(state: DiagnosticsState, onConnect: () -> Unit, onDisconnec
                 }
                 !state.connected -> Button(onClick = onConnect, enabled = !state.connecting, modifier = Modifier.fillMaxWidth().height(50.dp)) {
                     if (state.connecting) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp) else Icon(Icons.Rounded.Bluetooth, null, Modifier.size(19.dp))
-                    Spacer(Modifier.width(9.dp)); Text(if (state.connecting) "CONNECTING…" else "SCAN & CONNECT", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(9.dp)); Text(if (state.connecting) "CONNECTING…" else "SCAN FOR DEVICES", fontWeight = FontWeight.Bold)
                 }
                 else -> {
                     Button(onClick = onScan, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("RUN COMPLETE HEALTH SCAN", fontWeight = FontWeight.Bold) }
@@ -523,7 +523,7 @@ private fun DevicePicker(state: DiagnosticsState, vm: DiagnosticsViewModel, onDi
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Connect to Raspberry Pi")
+                Text("Select diagnostic device")
                 Text(
                     if (state.scanning) "Scanning for nearby Bluetooth devices…" else "Scan finished",
                     color = Muted, style = MaterialTheme.typography.bodySmall
@@ -536,19 +536,18 @@ private fun DevicePicker(state: DiagnosticsState, vm: DiagnosticsViewModel, onDi
         },
         text = {
             if (state.devices.isEmpty()) {
-                Text(if (state.scanning) "Keep VehicleSim-OBD discoverable on the Raspberry Pi." else "VehicleSim-OBD was not found. Make the Pi discoverable and scan again.")
+                Text(if (state.scanning) "Keep the Bluetooth OBD interface powered on and discoverable." else "No diagnostic device was found. Check power, pairing and discoverable mode, then scan again.")
             } else LazyColumn {
                 items(state.devices, key = { it.address }) { device ->
-                    val isPi = device.name == "VehicleSim-OBD"
                     Card(
                         onClick = { vm.connect(device); onDismiss() },
-                        colors = CardDefaults.cardColors(containerColor = if (isPi) Color(0xFF173E30) else Color.Transparent),
+                        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
                     ) {
                         ListItem(
-                            headlineContent = { Text(device.name ?: "Unnamed Bluetooth device", fontWeight = if (isPi) FontWeight.Bold else FontWeight.Normal) },
+                            headlineContent = { Text(device.name ?: "Unnamed Bluetooth device", fontWeight = FontWeight.Bold) },
                             supportingContent = { Text(device.address) },
-                            leadingContent = { Icon(Icons.Rounded.Bluetooth, null, tint = if (isPi) Mint else Muted) },
+                            leadingContent = { Icon(Icons.Rounded.Bluetooth, null, tint = Mint) },
                             trailingContent = { Text("CONNECT", color = Mint, style = MaterialTheme.typography.labelMedium) },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                         )
