@@ -23,7 +23,6 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Dashboard
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.TireRepair
 import androidx.compose.material.icons.rounded.Lock
@@ -58,7 +57,7 @@ private val Mint = Color(0xFF60F4B2)
 private val Muted = Color(0xFF9AAFA6)
 private val Warning = Color(0xFFFFC857)
 
-private enum class AppSection(val label: String) { OVERVIEW("Home"), LIVE("Live"), VEHICLE("Vehicle"), REPORTS("Reports") }
+private enum class AppSection(val label: String) { OVERVIEW("Home"), VEHICLE("Vehicle"), REPORTS("Reports") }
 
 @Composable
 fun RaziyaTheme(content: @Composable () -> Unit) {
@@ -106,7 +105,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
 
     LaunchedEffect(state.scanCompletedAt) {
         if (state.scanCompletedAt != null) {
-            section = AppSection.LIVE
+            section = AppSection.OVERVIEW
             snackbarHostState.showSnackbar(
                 message = "Diagnosis complete — ${state.dtcs.size} issues detected. Report ready.",
                 withDismissAction = true,
@@ -123,7 +122,6 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                 AppSection.entries.forEach { item ->
                     val icon = when (item) {
                         AppSection.OVERVIEW -> Icons.Rounded.Dashboard
-                        AppSection.LIVE -> Icons.Rounded.Speed
                         AppSection.VEHICLE -> Icons.Rounded.DirectionsCar
                         AppSection.REPORTS -> Icons.Rounded.Description
                     }
@@ -146,13 +144,9 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
             when (section) {
                 AppSection.OVERVIEW -> {
                     item { HeroCard(state, onConnect = requestConnection, onDisconnect = vm::disconnect, onScan = vm::runHealthScan) }
-                    item { SectionTitle("AT A GLANCE", "The essentials for roadside triage") }
-                    item { TelemetryGrid(state.readings, compact = true) }
-                    item { QuickAlerts(state) { section = AppSection.VEHICLE } }
-                }
-                AppSection.LIVE -> {
-                    item { SectionTitle("LIVE DATA", "Standard OBD-II parameters from the engine ECU") }
+                    item { SectionTitle("STANDARD OBD PARAMETERS", "Live data from the engine ECU") }
                     item { TelemetryGrid(state.readings) }
+                    item { QuickAlerts(state) { section = AppSection.VEHICLE } }
                 }
                 AppSection.VEHICLE -> {
                     item { SectionTitle("BODY & CHASSIS", "Lab BCM, TPMS, ABS and transmission data") }
