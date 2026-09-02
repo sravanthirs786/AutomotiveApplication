@@ -335,7 +335,7 @@ private fun QuickAlerts(state: DiagnosticsState, onOpen: () -> Unit) {
                 Text("Vehicle alerts", fontWeight = FontWeight.Bold)
                 Text(when {
                     state.scanCompletedAt == null -> "Run a scan to read body and tyre status"
-                    !available -> "Body / TPMS data unavailable — simulator update required"
+                    !available -> "Body and TPMS data are not supported by this vehicle or diagnostic adapter"
                     else -> "$openDoors open panels • $lowTyres low tyres"
                 }, color = Muted)
             }; Text("VIEW", color = Mint, fontWeight = FontWeight.Bold)
