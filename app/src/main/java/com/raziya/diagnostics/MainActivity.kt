@@ -1,6 +1,7 @@
 package com.raziya.diagnostics
 
 import android.Manifest
+import android.app.DatePickerDialog
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,6 +50,7 @@ import com.raziya.diagnostics.history.toDiagnosticsState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -160,7 +163,7 @@ fun DiagnosticsApp(vm: DiagnosticsViewModel = viewModel()) {
                     item { DrivetrainCard(state.vehicleStatus) }
                 }
                 AppSection.REPORTS -> {
-                    item { ReportsHistoryScreen(state.scanHistory, shareReport) { section = AppSection.OVERVIEW } }
+                    item { ReportsHistoryScreen(state.scanHistory, shareReport) }
                 }
             }
         }
@@ -387,46 +390,75 @@ private fun DrivetrainCard(status: com.raziya.diagnostics.can.VehicleStatus) {
     } }
 }
 
-private enum class ReportSection { DIAGNOSTIC_REPORTS, SCAN_DATA }
-
 @Composable
 private fun ReportsHistoryScreen(
     records: List<ScanRecord>,
     onExport: (DiagnosticsState) -> Unit,
-    onGoHome: () -> Unit,
 ) {
-    var reportSection by rememberSaveable { mutableStateOf(ReportSection.DIAGNOSTIC_REPORTS) }
-    var selectedId by rememberSaveable { mutableStateOf<Long?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionTitle("REPORTS", "Saved locally and arranged by scan date")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FilterChip(
-                selected = reportSection == ReportSection.DIAGNOSTIC_REPORTS,
-                onClick = { reportSection = ReportSection.DIAGNOSTIC_REPORTS; selectedId = null },
-                label = { Text("Diagnostic reports") }, modifier = Modifier.weight(1f),
-            )
-            FilterChip(
-                selected = reportSection == ReportSection.SCAN_DATA,
-                onClick = { reportSection = ReportSection.SCAN_DATA; selectedId = null },
-                label = { Text("Scan data") }, modifier = Modifier.weight(1f),
-            )
-        }
-        if (records.isEmpty()) {
-            EmptyReportCard(onGoHome)
-            return@Column
-        }
-        records.groupBy { formatScanDay(it.scannedAt) }.forEach { (day, dayRecords) ->
-            Text(day.uppercase(), color = Muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
+        DatedHistorySection(
+            title = "Diagnostic Reports",
+            subtitle = "Vehicle assessment, findings and client-ready reports",
+            records = records,
+            diagnostic = true,
+            onExport = onExport,
+        )
+        Spacer(Modifier.height(8.dp))
+        DatedHistorySection(
+            title = "Scan Data",
+            subtitle = "Complete ECU readings and retained diagnostic evidence",
+            records = records,
+            diagnostic = false,
+            onExport = onExport,
+        )
+    }
+}
+
+@Composable
+private fun DatedHistorySection(
+    title: String,
+    subtitle: String,
+    records: List<ScanRecord>,
+    diagnostic: Boolean,
+    onExport: (DiagnosticsState) -> Unit,
+) {
+    val context = LocalContext.current
+    var selectedDate by rememberSaveable(title) { mutableStateOf(startOfDay(System.currentTimeMillis())) }
+    var selectedId by rememberSaveable(title) { mutableStateOf<Long?>(null) }
+    val dayRecords = records.filter { startOfDay(it.scannedAt) == selectedDate }
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1B16)), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+            HorizontalDivider(color = Mint, thickness = 2.dp, modifier = Modifier.width(72.dp))
+            Text(subtitle, color = Muted)
+            OutlinedButton(
+                onClick = {
+                    showScanDatePicker(context, selectedDate) { date ->
+                        selectedDate = startOfDay(date)
+                        selectedId = null
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+            ) {
+                Icon(Icons.Rounded.CalendarMonth, null, Modifier.size(19.dp))
+                Spacer(Modifier.width(9.dp))
+                Text(if (selectedDate == startOfDay(System.currentTimeMillis())) "Today • ${formatScanDay(selectedDate)}" else formatScanDay(selectedDate), fontWeight = FontWeight.Bold)
+            }
+            Text("${dayRecords.size} ${if (dayRecords.size == 1) "record" else "records"}", color = Mint, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            if (dayRecords.isEmpty()) {
+                Surface(color = Color.White.copy(alpha = .04f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("No ${title.lowercase()} saved for this date.", color = Muted, modifier = Modifier.padding(18.dp))
+                }
+            }
             dayRecords.forEach { record ->
-                HistoryRecordCard(record, reportSection, selectedId == record.id) {
+                HistoryRecordCard(record, diagnostic, selectedId == record.id) {
                     selectedId = if (selectedId == record.id) null else record.id
                 }
                 if (selectedId == record.id) {
                     val historicalState = remember(record.id) { record.toDiagnosticsState() }
-                    when (reportSection) {
-                        ReportSection.DIAGNOSTIC_REPORTS -> DiagnosticReportCard(historicalState) { onExport(historicalState) }
-                        ReportSection.SCAN_DATA -> ScanDataPreview(historicalState)
-                    }
+                    if (diagnostic) DiagnosticReportCard(historicalState) { onExport(historicalState) }
+                    else ScanDataPreview(historicalState)
                 }
             }
         }
@@ -434,18 +466,18 @@ private fun ReportsHistoryScreen(
 }
 
 @Composable
-private fun HistoryRecordCard(record: ScanRecord, section: ReportSection, expanded: Boolean, onClick: () -> Unit) {
+private fun HistoryRecordCard(record: ScanRecord, diagnostic: Boolean, expanded: Boolean, onClick: () -> Unit) {
     val issueCount = record.dtcs.split(",").count { it.isNotBlank() }
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(18.dp)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(42.dp).background(Mint.copy(alpha = .12f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                Icon(if (section == ReportSection.DIAGNOSTIC_REPORTS) Icons.Rounded.Description else Icons.Rounded.Memory, null, tint = Mint)
+                Icon(if (diagnostic) Icons.Rounded.Description else Icons.Rounded.Memory, null, tint = Mint)
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("${record.vehicleName} • ${record.registrationNumber}", fontWeight = FontWeight.Bold)
                 Text(formatScanTime(record.scannedAt), color = Muted, style = MaterialTheme.typography.bodySmall)
-                Text(if (section == ReportSection.DIAGNOSTIC_REPORTS) "$issueCount diagnostic findings" else "Complete ECU scan snapshot", color = if (issueCount > 0) Warning else Mint, style = MaterialTheme.typography.bodySmall)
+                Text(if (diagnostic) "$issueCount diagnostic findings" else "Complete ECU scan snapshot", color = if (issueCount > 0) Warning else Mint, style = MaterialTheme.typography.bodySmall)
             }
             Text(if (expanded) "CLOSE" else "VIEW", color = Mint, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
         }
@@ -483,6 +515,28 @@ private fun formatScanDay(timestamp: Long): String =
 
 private fun formatScanTime(timestamp: Long): String =
     SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", Locale.getDefault()).format(Date(timestamp))
+
+private fun startOfDay(timestamp: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = timestamp
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+private fun showScanDatePicker(context: android.content.Context, initialDate: Long, onSelected: (Long) -> Unit) {
+    val initial = Calendar.getInstance().apply { timeInMillis = initialDate }
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            onSelected(Calendar.getInstance().apply {
+                set(year, month, day, 0, 0, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis)
+        },
+        initial.get(Calendar.YEAR), initial.get(Calendar.MONTH), initial.get(Calendar.DAY_OF_MONTH),
+    ).show()
+}
 
 @Composable
 private fun EmptyReportCard(onScan: () -> Unit) {
